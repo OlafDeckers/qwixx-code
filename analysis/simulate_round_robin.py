@@ -222,7 +222,7 @@ def run_round_robin():
     agents = ['SOLO', 'SCORE', 'HYBRID_5', 'HYBRID_10', 'HYBRID_25', 'HYBRID_50', 'WIN']
     matchups = list(itertools.combinations(agents, 2))
     
-    games_per_matchup = 10000 
+    games_per_matchup = 100000 
     cores = mp.cpu_count()
     
     win_matrix = np.full((len(agents), len(agents)), 50.0)
