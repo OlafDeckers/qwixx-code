@@ -2,13 +2,15 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 import random
+import time
+import multiprocessing as mp
 from core.state_encoder import decode_state
 from core.environment import MiniQwixxEnv
 
 ROW_ID_TO_COUNT = [0, 1, 1, 2, 1, 2, 3, 1, 2, 3, 4, 3, 4, 5]
 
 # ---> CHANGE THIS VALUE ONCE HERE <---
-NUM_SIMULATED_GAMES = 100000 
+NUM_SIMULATED_GAMES = 100000
 
 def calculate_score(r_id, b_id, penalties):
     count_r, count_b = ROW_ID_TO_COUNT[r_id], ROW_ID_TO_COUNT[b_id]
@@ -20,12 +22,19 @@ def roll_dice():
     return {'W1': random.randint(1, 3), 'W2': random.randint(1, 3), 
             'R': random.randint(1, 3), 'B': random.randint(1, 3)}
 
-def simulate_games(rl_V, dp_V, num_games=NUM_SIMULATED_GAMES):
-    rl_wins = 0
+def simulate_games_chunk(args):
+    """The worker function that runs a smaller chunk of games on a single CPU core."""
+    chunk_size, rl_V, dp_V = args
+    
+    # CRITICAL: Re-seed the random generator so cores don't mirror each other's dice rolls
+    random.seed(os.getpid() + int(time.time() * 1000))
+    np.random.seed((os.getpid() + int(time.time() * 1000)) % 4294967295)
+    
+    local_rl_wins = 0
     white_actions = ['R', 'B', None]
     color_actions = [('R', '1'), ('R', '2'), ('B', '1'), ('B', '2'), None]
     
-    for _ in range(num_games):
+    for _ in range(chunk_size):
         state = 0
         active_player = 1 
         
@@ -38,7 +47,6 @@ def simulate_games(rl_V, dp_V, num_games=NUM_SIMULATED_GAMES):
             next_active_idx = 1 if active_player == 1 else 0
             
             # --- STEP 1: INDEPENDENT WHITE ACTIONS ---
-            # RL Agent (P1) builds its matrix to pick its white action
             rl_payoff = np.zeros((3, 3), dtype=np.float32)
             for w1_idx, a_w1 in enumerate(white_actions):
                 for w2_idx, a_w2 in enumerate(white_actions):
@@ -53,7 +61,6 @@ def simulate_games(rl_V, dp_V, num_games=NUM_SIMULATED_GAMES):
                         if val > best_val: best_val = val
                     rl_payoff[w1_idx, w2_idx] = best_val
 
-            # Exact DP Agent (P2) builds its matrix to pick its white action
             dp_payoff = np.zeros((3, 3), dtype=np.float32)
             for w1_idx, a_w1 in enumerate(white_actions):
                 for w2_idx, a_w2 in enumerate(white_actions):
@@ -68,7 +75,6 @@ def simulate_games(rl_V, dp_V, num_games=NUM_SIMULATED_GAMES):
                         if val < best_val: best_val = val
                     dp_payoff[w1_idx, w2_idx] = best_val
 
-            # Both players pick their safest Minimax strategy independently
             p1_w1_idx = np.argmax(np.min(rl_payoff, axis=1))
             a_w1_chosen = white_actions[p1_w1_idx]
 
@@ -76,9 +82,8 @@ def simulate_games(rl_V, dp_V, num_games=NUM_SIMULATED_GAMES):
             a_w2_chosen = white_actions[p2_w2_idx]
 
             # --- STEP 2: ACTIVE PLAYER PICKS COLOR ACTION ---
-            # Now that white actions are locked, the active player decides what color box to cross
             best_final_c = None
-            if active_player == 1: # RL Agent chooses
+            if active_player == 1: 
                 best_val = -9999.0
                 for a_c in color_actions:
                     next_s, is_term = MiniQwixxEnv.step(state, active_player, dice, a_w1_chosen, a_w2_chosen, a_c)
@@ -91,7 +96,7 @@ def simulate_games(rl_V, dp_V, num_games=NUM_SIMULATED_GAMES):
                     if val > best_val:
                         best_val = val
                         best_final_c = a_c
-            else: # Exact DP Agent chooses
+            else: 
                 best_val = 9999.0
                 for a_c in color_actions:
                     next_s, is_term = MiniQwixxEnv.step(state, active_player, dice, a_w1_chosen, a_w2_chosen, a_c)
@@ -105,16 +110,33 @@ def simulate_games(rl_V, dp_V, num_games=NUM_SIMULATED_GAMES):
                         best_val = val
                         best_final_c = a_c
 
-            # Execute the final combined moves
             state, _ = MiniQwixxEnv.step(state, active_player, dice, a_w1_chosen, a_w2_chosen, best_final_c)
             active_player = 2 if active_player == 1 else 1
             
-        # Check Winner
         p1_r, p1_b, p1_p, p2_r, p2_b, p2_p = decode_state(state)
         if calculate_score(p1_r, p1_b, p1_p) > calculate_score(p2_r, p2_b, p2_p):
-            rl_wins += 1
+            local_rl_wins += 1
             
-    return (rl_wins / num_games) * 100
+    return local_rl_wins
+
+def simulate_games(rl_V, dp_V, num_games=NUM_SIMULATED_GAMES):
+    """The Multi-Core Manager: Splits the 100,000 games across all available CPU cores."""
+    cores = mp.cpu_count()
+    chunk_size = num_games // cores
+    remainder = num_games % cores
+    
+    args_list = []
+    for i in range(cores):
+        # Give any leftover games to the very first core
+        games_for_this_core = chunk_size + (remainder if i == 0 else 0)
+        args_list.append((games_for_this_core, rl_V, dp_V))
+        
+    with mp.Pool(processes=cores) as pool:
+        # pool.map returns a list of the win counts from each core
+        results = pool.map(simulate_games_chunk, args_list)
+        
+    total_rl_wins = sum(results)
+    return (total_rl_wins / num_games) * 100
 
 def generate_comparison_plot():
     print("Loading Exact DP Agent...")
@@ -133,8 +155,7 @@ def generate_comparison_plot():
     milestones = [5, 10, 15, 20]
     plot_data = {name: [] for name in models.keys()}
     
-    # Formatted print string using the new global constant
-    print(f"\nStarting the Checkpoint Tournament ({NUM_SIMULATED_GAMES:,} games per checkpoint). This may take a few minutes...\n")
+    print(f"\nStarting the Checkpoint Tournament ({NUM_SIMULATED_GAMES:,} games per checkpoint). Running on {mp.cpu_count()} cores...\n")
 
     for model_name, info in models.items():
         print(f"--- Evaluating {model_name} ---")
@@ -146,7 +167,6 @@ def generate_comparison_plot():
                 print(f"  Loading {m}M Checkpoint...")
                 rl_V = np.load(file_path)
                 
-                # Using the global constant here too!
                 win_rate = simulate_games(rl_V, dp_V, num_games=NUM_SIMULATED_GAMES)
                 
                 plot_data[model_name].append(win_rate)
