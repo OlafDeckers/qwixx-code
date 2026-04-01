@@ -23,7 +23,7 @@ def init_worker():
     # Load the Exact Mathematical DP array
     V_dp_shared = np.load('data/V_nash_hybrid_25.npy', mmap_mode='r')
     # Load the AI's Self-Taught RL array
-    V_rl_shared = np.load('data/V_rl_minimax_hybrid.npy', mmap_mode='r')
+    V_rl_shared = np.load('data/V_rl_minimax_reward_shape.npy', mmap_mode='r')
     np.random.seed(os.getpid() + int(time.time()))
     random.seed(os.getpid() + int(time.time()))
 
@@ -143,7 +143,7 @@ def simulate_matchup_chunk(args):
     return stats
 
 def run_rl_showdown():
-    total_games = 1000000
+    total_games = 100000
     cores = mp.cpu_count()
     
     print("\n" + "="*70)

@@ -4,6 +4,7 @@ import time
 import os
 import multiprocessing as mp
 from scipy.optimize import linprog
+import matplotlib.pyplot as plt
 
 from core.state_encoder import decode_state
 from core.environment import MiniQwixxEnv
@@ -21,9 +22,9 @@ def init_worker():
     V_solo = np.load('data/V_solo.npy', mmap_mode='r')
     V_score = np.load('data/V_nash.npy', mmap_mode='r')
     V_win = np.load('data/V_nash_win_prob.npy', mmap_mode='r')
-    V_h5 = np.load('data/V_nash_hybrid_5.npy', mmap_mode='r')      # Added 5
-    V_h10 = np.load('data/V_nash_hybrid_10.npy', mmap_mode='r')       # Your original Bonus 10
-    V_h25 = np.load('data/V_nash_hybrid_25.npy', mmap_mode='r')    # Added 25
+    V_h5 = np.load('data/V_nash_hybrid_5.npy', mmap_mode='r')
+    V_h10 = np.load('data/V_nash_hybrid_10.npy', mmap_mode='r')
+    V_h25 = np.load('data/V_nash_hybrid_25.npy', mmap_mode='r')
     V_h50 = np.load('data/V_nash_hybrid_50.npy', mmap_mode='r')
     np.random.seed(os.getpid() + int(time.time()))
     random.seed(os.getpid() + int(time.time()))
@@ -54,7 +55,6 @@ def get_nash_probs(A):
     return np.clip(p1, 0, 1) / np.sum(np.clip(p1, 0, 1)), np.clip(p2, 0, 1) / np.sum(np.clip(p2, 0, 1))
 
 def get_eval(state, active_idx, is_term, agent_type, eval_player):
-    # 2. Updated evaluation to handle all hybrid models
     if is_term:
         p1_r, p1_b, p1_p, p2_r, p2_b, p2_p = decode_state(state)
         s1 = calculate_score(p1_r, p1_b, p1_p)
@@ -88,7 +88,7 @@ def simulate_self_play(args):
             if p1_p >= 3 or p2_p >= 3 or (MiniQwixxEnv.is_row_locked(p1_r, p2_r) and MiniQwixxEnv.is_row_locked(p1_b, p2_b)):
                 s1 = calculate_score(p1_r, p1_b, p1_p)
                 s2 = calculate_score(p2_r, p2_b, p2_p)
-                total_welfare += (s1 + s2) # Social Welfare is the SUM of both scores
+                total_welfare += (s1 + s2) 
                 break
 
             dice = {'W1': random.randint(1, 3), 'W2': random.randint(1, 3), 'R': random.randint(1, 3), 'B': random.randint(1, 3)}
@@ -125,10 +125,7 @@ def simulate_self_play(args):
     return total_welfare
 
 def calculate_spectrum_poa():
-    # 3. Updated the list to contain all agents
     agents = ['SOLO', 'SCORE', 'HYBRID_5', 'HYBRID_10', 'HYBRID_25', 'HYBRID_50', 'WIN']
-    
-    # Set to 100,000 for extreme accuracy (can change to 500,000 if you want the ultimate proof!)
     games_per_agent = 100000 
     cores = mp.cpu_count()
     
@@ -151,7 +148,6 @@ def calculate_spectrum_poa():
         avg_welfare = sum(welfares) / games_per_agent
         results_welfare[agent] = avg_welfare
 
-    # The Optimal Social Welfare is defined by the Solo Agents playing cooperatively
     w_opt = results_welfare['SOLO']
 
     print("\n" + "="*75)
@@ -161,17 +157,61 @@ def calculate_spectrum_poa():
     print(f"{'Strategy Type':<25} | {'Social Welfare':<15} | {'PoA (W_opt / W_nash)'}")
     print("-" * 75)
     
-    # Skip SOLO in the printout since PoA for solo is exactly 1.0 by definition
+    plot_labels = []
+    welfares_to_plot = []
+    poas_to_plot = []
+
     for agent in ['SCORE', 'HYBRID_5', 'HYBRID_10', 'HYBRID_25', 'HYBRID_50', 'WIN']:
         w_nash = results_welfare[agent]
         poa = w_opt / w_nash
         print(f"{agent:<25} | {w_nash:<15.2f} | {poa:.4f}")
         
+        # Prepare data for plotting
+        label_map = {'SCORE': 'Score', 'HYBRID_5': 'Hybrid 5', 'HYBRID_10': 'Hybrid 10', 
+                     'HYBRID_25': 'Hybrid 25', 'HYBRID_50': 'Hybrid 50', 'WIN': 'Win Prob'}
+        plot_labels.append(label_map[agent])
+        welfares_to_plot.append(w_nash)
+        poas_to_plot.append(poa)
+        
     print("="*75)
-    print("THESIS CONCLUSION:")
-    print("As players prioritize binary wins over point margins, they execute")
-    print("'Hail Mary' strategies. This destroys the system's efficiency,")
-    print("causing the Price of Anarchy to spike dramatically.")
+    
+    # --- MATPLOTLIB PLOTTING LOGIC ---
+    print("\nGenerating visual plot...")
+    
+    fig, ax1 = plt.subplots(figsize=(10, 6))
+
+    # Primary Y-Axis (Social Welfare Bar Chart)
+    color_bar = '#4A90E2'
+    ax1.set_xlabel('Strategy Objective', fontsize=12, fontweight='bold')
+    ax1.set_ylabel('Social Welfare (Combined Points)', color=color_bar, fontsize=12, fontweight='bold')
+    ax1.bar(plot_labels, welfares_to_plot, color=color_bar, alpha=0.8, edgecolor='black')
+    ax1.tick_params(axis='y', labelcolor=color_bar)
+    
+    # Add Solo Baseline Line
+    ax1.axhline(y=w_opt, color='gray', linestyle='--', linewidth=2, label=f'Optimal Baseline ({w_opt:.2f} pts)')
+    ax1.legend(loc='upper left')
+
+    # Secondary Y-Axis (Price of Anarchy Line Graph)
+    ax2 = ax1.twinx()  
+    color_line = '#D0021B'
+    ax2.set_ylabel('Price of Anarchy (PoA)', color=color_line, fontsize=12, fontweight='bold')
+    ax2.plot(plot_labels, poas_to_plot, color=color_line, marker='o', markersize=8, linewidth=3, label='PoA')
+    ax2.tick_params(axis='y', labelcolor=color_line)
+    ax2.set_ylim([0.9, max(poas_to_plot) + 0.15]) # Scale nicely above 1.0
+
+    # Clean up layout
+    plt.title('Price of Anarchy Spectrum in Mini-Qwixx', fontsize=16, fontweight='bold')
+    plt.grid(axis='y', linestyle='--', alpha=0.3)
+    fig.tight_layout() 
+
+    # Save to disk
+    os.makedirs('data/plots', exist_ok=True)
+    plot_path = 'data/plots/price_of_anarchy_spectrum.png'
+    plt.savefig(plot_path, dpi=300)
+    print(f"Plot saved successfully to: {plot_path}")
+    
+    # Show the plot window
+    plt.show()
 
 if __name__ == '__main__':
     calculate_spectrum_poa()
