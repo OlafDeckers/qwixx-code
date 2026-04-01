@@ -10,7 +10,7 @@ from core.environment import MiniQwixxEnv
 ROW_ID_TO_COUNT = [0, 1, 1, 2, 1, 2, 3, 1, 2, 3, 4, 3, 4, 5]
 
 # ---> CHANGE THIS VALUE ONCE HERE <---
-NUM_SIMULATED_GAMES = 100000
+NUM_SIMULATED_GAMES = 100000 
 
 def calculate_score(r_id, b_id, penalties):
     count_r, count_b = ROW_ID_TO_COUNT[r_id], ROW_ID_TO_COUNT[b_id]
@@ -36,7 +36,8 @@ def simulate_games_chunk(args):
     
     for _ in range(chunk_size):
         state = 0
-        active_player = 1 
+        # Randomly select who goes first
+        active_player = random.choice([1, 2]) 
         
         while True:
             p1_r, p1_b, p1_p, p2_r, p2_b, p2_p = decode_state(state)
@@ -120,19 +121,17 @@ def simulate_games_chunk(args):
     return local_rl_wins
 
 def simulate_games(rl_V, dp_V, num_games=NUM_SIMULATED_GAMES):
-    """The Multi-Core Manager: Splits the 100,000 games across all available CPU cores."""
+    """The Multi-Core Manager: Splits the games across all available CPU cores."""
     cores = mp.cpu_count()
     chunk_size = num_games // cores
     remainder = num_games % cores
     
     args_list = []
     for i in range(cores):
-        # Give any leftover games to the very first core
         games_for_this_core = chunk_size + (remainder if i == 0 else 0)
         args_list.append((games_for_this_core, rl_V, dp_V))
         
     with mp.Pool(processes=cores) as pool:
-        # pool.map returns a list of the win counts from each core
         results = pool.map(simulate_games_chunk, args_list)
         
     total_rl_wins = sum(results)
