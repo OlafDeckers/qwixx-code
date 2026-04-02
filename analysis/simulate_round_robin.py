@@ -26,8 +26,8 @@ def init_worker():
     V_solo = np.load('data/V_solo.npy', mmap_mode='r')
     V_score = np.load('data/V_nash.npy', mmap_mode='r')
     V_win = np.load('data/V_nash_win_prob.npy', mmap_mode='r')
-    V_h10 = np.load('data/V_nash_hybrid.npy', mmap_mode='r') 
     V_h5 = np.load('data/V_nash_hybrid_5.npy', mmap_mode='r')
+    V_h10 = np.load('data/V_nash_hybrid_10.npy', mmap_mode='r') 
     V_h25 = np.load('data/V_nash_hybrid_25.npy', mmap_mode='r')
     V_h50 = np.load('data/V_nash_hybrid_50.npy', mmap_mode='r')
     np.random.seed(os.getpid() + int(time.time()))
@@ -60,11 +60,6 @@ def get_nash_probs(A):
     return np.clip(p1, 0, 1) / np.sum(np.clip(p1, 0, 1)), np.clip(p2, 0, 1) / np.sum(np.clip(p2, 0, 1))
 
 def get_eval(state, active_idx, is_term, agent_type, evaluating_player):
-    """
-    evaluating_player: 1 or 2. 
-    If agent is zero-sum, always returns from P1's perspective.
-    If agent is SOLO, returns its OWN raw score. (For P2, we return -score, so minimizing it maximizes P2's score)
-    """
     if is_term:
         p1_r, p1_b, p1_p, p2_r, p2_b, p2_p = decode_state(state)
         s1 = calculate_score(p1_r, p1_b, p1_p)
@@ -80,7 +75,6 @@ def get_eval(state, active_idx, is_term, agent_type, evaluating_player):
             bonus = float(agent_type.split('_')[1])
             return (diff + bonus) if diff > 0 else ((diff - bonus) if diff < 0 else 0.0)
 
-    # Non-Terminal lookups
     if agent_type == 'SOLO':
         return V_solo[state, active_idx, 0] if evaluating_player == 1 else -V_solo[state, active_idx, 1]
     elif agent_type == 'SCORE': return V_score[state, active_idx, 0] - V_score[state, active_idx, 1]
@@ -93,39 +87,53 @@ def get_eval(state, active_idx, is_term, agent_type, evaluating_player):
 def simulate_matchup_chunk(args):
     num_games, agent_a_type, agent_b_type = args
     stats = {
-        'a_wins': 0, 'b_wins': 0, 'ties': 0,
-        'a_pts': 0, 'b_pts': 0,
-        'a_margins': [], 'b_margins': []
+        'a_as_p1_wins': 0, 'a_as_p2_wins': 0,
+        'b_as_p1_wins': 0, 'b_as_p2_wins': 0,
+        'ties': 0,
+        'a_as_p1_pts': 0, 'a_as_p2_pts': 0,
+        'b_as_p1_pts': 0, 'b_as_p2_pts': 0,
+        # Track purely winning margins
+        'a_as_p1_margin_sum': 0, 'a_as_p2_margin_sum': 0,
+        'b_as_p1_margin_sum': 0, 'b_as_p2_margin_sum': 0
     }
 
-    for _ in range(num_games):
+    for i in range(num_games):
         state = 0
         active_player = 1
         
-        # Coin flip to determine seating arrangement
-        a_is_p1 = random.choice([True, False])
+        # Perfect 50/50 split of starting positions
+        a_is_p1 = (i % 2 == 0)
         agent_p1 = agent_a_type if a_is_p1 else agent_b_type
         agent_p2 = agent_b_type if a_is_p1 else agent_a_type
 
         while True:
             p1_r, p1_b, p1_p, p2_r, p2_b, p2_p = decode_state(state)
             if p1_p >= 3 or p2_p >= 3 or (MiniQwixxEnv.is_row_locked(p1_r, p2_r) and MiniQwixxEnv.is_row_locked(p1_b, p2_b)):
-                s1 = calculate_score(p1_r, p1_b, p1_p)
-                s2 = calculate_score(p2_r, p2_b, p2_p)
-                a_pts = s1 if a_is_p1 else s2
-                b_pts = s2 if a_is_p1 else s1
+                s1 = calculate_score(p1_r, p1_b, p1_p) # Player 1 (Starter)
+                s2 = calculate_score(p2_r, p2_b, p2_p) # Player 2 (Second)
                 
-                stats['a_pts'] += a_pts
-                stats['b_pts'] += b_pts
-                
-                if a_pts > b_pts: 
-                    stats['a_wins'] += 1
-                    stats['a_margins'].append(a_pts - b_pts)
-                elif b_pts > a_pts: 
-                    stats['b_wins'] += 1
-                    stats['b_margins'].append(b_pts - a_pts)
-                else: 
-                    stats['ties'] += 1
+                if a_is_p1:
+                    stats['a_as_p1_pts'] += s1
+                    stats['b_as_p2_pts'] += s2
+                    if s1 > s2: 
+                        stats['a_as_p1_wins'] += 1
+                        stats['a_as_p1_margin_sum'] += (s1 - s2)
+                    elif s2 > s1: 
+                        stats['b_as_p2_wins'] += 1
+                        stats['b_as_p2_margin_sum'] += (s2 - s1)
+                    else: 
+                        stats['ties'] += 1
+                else:
+                    stats['b_as_p1_pts'] += s1
+                    stats['a_as_p2_pts'] += s2
+                    if s1 > s2: 
+                        stats['b_as_p1_wins'] += 1
+                        stats['b_as_p1_margin_sum'] += (s1 - s2)
+                    elif s2 > s1: 
+                        stats['a_as_p2_wins'] += 1
+                        stats['a_as_p2_margin_sum'] += (s2 - s1)
+                    else: 
+                        stats['ties'] += 1
                 break
 
             dice = {'W1': random.randint(1, 3), 'W2': random.randint(1, 3), 'R': random.randint(1, 3), 'B': random.randint(1, 3)}
@@ -151,7 +159,6 @@ def simulate_matchup_chunk(args):
                     best_c_dict[(w1_idx, w2_idx)] = best_c
                     final_ns, final_term = MiniQwixxEnv.step(state, active_player, dice, a_w1, a_w2, best_c)
                     
-                    # Both players evaluate the board from their own perspective
                     M_p1[w1_idx, w2_idx] = get_eval(final_ns, next_idx, final_term, agent_p1, 1)
                     M_p2[w1_idx, w2_idx] = get_eval(final_ns, next_idx, final_term, agent_p2, 2)
 
@@ -167,67 +174,87 @@ def simulate_matchup_chunk(args):
             
     return stats
 
-def plot_heatmaps(win_matrix, score_matrix, margin_matrix, agents):
-    # Fill self-play diagonals with NaN to make the heatmap cleaner
+def plot_heatmaps(win_matrix, p1_score_matrix, p2_score_matrix, p1_margin_matrix, p2_margin_matrix, agents):
     np.fill_diagonal(win_matrix, np.nan)
-    np.fill_diagonal(score_matrix, np.nan)
-    np.fill_diagonal(margin_matrix, np.nan)
+    np.fill_diagonal(p1_score_matrix, np.nan)
+    np.fill_diagonal(p2_score_matrix, np.nan)
+    np.fill_diagonal(p1_margin_matrix, np.nan)
+    np.fill_diagonal(p2_margin_matrix, np.nan)
     
     os.makedirs('plots', exist_ok=True)
-    
     display_names = ['Solo\n(Raw Pts)', 'Score\n(0 Bonus)', 'Hybrid\n(5 Bonus)', 'Hybrid\n(10 Bonus)', 
                      'Hybrid\n(25 Bonus)', 'Hybrid\n(50 Bonus)', 'Win Prob\n(Inf Bonus)']
 
-    def format_and_save(title, filename):
+    def format_and_save(title, xlabel, ylabel, filename):
         plt.title(title, fontsize=16, fontweight='bold', pad=15)
-        plt.ylabel("Agent Strategy (Row)", fontsize=12, fontweight='bold')
-        plt.xlabel("Opponent Strategy (Column)", fontsize=12, fontweight='bold')
+        plt.ylabel(ylabel, fontsize=12, fontweight='bold')
+        plt.xlabel(xlabel, fontsize=12, fontweight='bold')
         plt.xticks(rotation=45)
         plt.yticks(rotation=0)
         plt.tight_layout()
         plt.savefig(f'plots/{filename}', dpi=300, bbox_inches='tight')
-        plt.close() # Close the figure so they don't overlap
+        plt.close() 
 
-    # --- Plot 1: Win Rate % ---
+    # --- Plot 1: Overall Win Rate % ---
     plt.figure(figsize=(10, 8))
     sns.heatmap(pd.DataFrame(win_matrix, index=display_names, columns=display_names), 
                 annot=True, fmt=".1f", cmap="RdYlGn", center=50.0, 
                 cbar_kws={'label': 'Win Rate % (Row vs Col)'},
                 linewidths=1, linecolor='black')
-    format_and_save("Qwixx AI: Win Rate (%)", "heatmap_1_win_rate.png")
+    format_and_save("Qwixx AI: Overall Win Rate (%)", "Opponent Strategy (Column)", "Agent Strategy (Row)", "heatmap_1_win_rate.png")
 
-    # --- Plot 2: Average Points ---
+    # --- Plot 2 & 3: BOTH USE THE "BLUES" COLORMAP NOW ---
     plt.figure(figsize=(10, 8))
-    sns.heatmap(pd.DataFrame(score_matrix, index=display_names, columns=display_names), 
+    sns.heatmap(pd.DataFrame(p1_score_matrix, index=display_names, columns=display_names), 
                 annot=True, fmt=".2f", cmap="Blues", 
-                cbar_kws={'label': 'Average Points Scored'},
+                cbar_kws={'label': 'Average Points (As Starter)'},
                 linewidths=1, linecolor='black')
-    format_and_save("Qwixx AI: Average Points Scored", "heatmap_2_avg_points.png")
+    format_and_save("Qwixx AI: Average Points Scored (Starting First)", "Opponent (Player 2)", "Agent (Player 1)", "heatmap_2_p1_points.png")
 
-    # --- Plot 3: Margin of Victory ---
     plt.figure(figsize=(10, 8))
-    sns.heatmap(pd.DataFrame(margin_matrix, index=display_names, columns=display_names), 
-                annot=True, fmt=".2f", cmap="Purples", 
-                cbar_kws={'label': 'Average Point Margin'},
+    sns.heatmap(pd.DataFrame(p2_score_matrix, index=display_names, columns=display_names), 
+                annot=True, fmt=".2f", cmap="Blues", # Changed to Blues!
+                cbar_kws={'label': 'Average Points (As Second)'},
                 linewidths=1, linecolor='black')
-    format_and_save("Qwixx AI: Average Margin of Victory", "heatmap_3_margin.png")
+    format_and_save("Qwixx AI: Average Points Scored (Starting Second)", "Opponent (Player 1)", "Agent (Player 2)", "heatmap_3_p2_points.png")
 
-    print("\nSuccessfully generated and saved 3 separate heatmaps:")
+    # --- Plot 4 & 5: MARGINS OF VICTORY (CONDITIONAL ON WINNING) ---
+    plt.figure(figsize=(10, 8))
+    sns.heatmap(pd.DataFrame(p1_margin_matrix, index=display_names, columns=display_names), 
+                annot=True, fmt=".2f", cmap="Purples", 
+                cbar_kws={'label': 'Winning Margin (When P1 Wins)'},
+                linewidths=1, linecolor='black')
+    format_and_save("Qwixx AI: Winning Margin (Starting First)", "Opponent (Player 2)", "Agent (Player 1)", "heatmap_4_p1_margin.png")
+
+    plt.figure(figsize=(10, 8))
+    sns.heatmap(pd.DataFrame(p2_margin_matrix, index=display_names, columns=display_names), 
+                annot=True, fmt=".2f", cmap="Purples", 
+                cbar_kws={'label': 'Winning Margin (When P2 Wins)'},
+                linewidths=1, linecolor='black')
+    format_and_save("Qwixx AI: Winning Margin (Starting Second)", "Opponent (Player 1)", "Agent (Player 2)", "heatmap_5_p2_margin.png")
+
+    print("\nSuccessfully generated and saved 5 separate heatmaps:")
     print("  1. plots/heatmap_1_win_rate.png")
-    print("  2. plots/heatmap_2_avg_points.png")
-    print("  3. plots/heatmap_3_margin.png")
+    print("  2. plots/heatmap_2_p1_points.png (Blues)")
+    print("  3. plots/heatmap_3_p2_points.png (Blues)")
+    print("  4. plots/heatmap_4_p1_margin.png (Winners Only)")
+    print("  5. plots/heatmap_5_p2_margin.png (Winners Only)")
+
 
 def run_round_robin():
-    # Full Spectrum of 7 Agents!
     agents = ['SOLO', 'SCORE', 'HYBRID_5', 'HYBRID_10', 'HYBRID_25', 'HYBRID_50', 'WIN']
     matchups = list(itertools.combinations(agents, 2))
     
-    games_per_matchup = 100000 
+    games_per_matchup = 10000 
     cores = mp.cpu_count()
     
     win_matrix = np.full((len(agents), len(agents)), 50.0)
-    score_matrix = np.full((len(agents), len(agents)), 0.0)
-    margin_matrix = np.full((len(agents), len(agents)), 0.0)
+    p1_score_matrix = np.full((len(agents), len(agents)), 0.0)
+    p2_score_matrix = np.full((len(agents), len(agents)), 0.0)
+    
+    # Init with NaN so if an agent never wins a single game, it displays as blank instead of 0
+    p1_margin_matrix = np.full((len(agents), len(agents)), np.nan)
+    p2_margin_matrix = np.full((len(agents), len(agents)), np.nan)
 
     print(f"\n" + "="*75)
     print(f" ROUND ROBIN TOURNAMENT: {len(agents)} AGENTS | {len(matchups)} UNIQUE MATCHUPS")
@@ -245,33 +272,54 @@ def run_round_robin():
         with mp.Pool(processes=cores, initializer=init_worker) as pool:
             results = pool.map(simulate_matchup_chunk, args)
 
-        a_w, b_w, t = 0, 0, 0
-        a_pts, b_pts = 0, 0
-        a_margins, b_margins = [], []
+        a_as_p1_w, a_as_p2_w = 0, 0
+        b_as_p1_w, b_as_p2_w = 0, 0
+        t = 0
+        
+        a_p1_pts, a_p2_pts = 0, 0
+        b_p1_pts, b_p2_pts = 0, 0
+        
+        a_p1_m_sum, a_p2_m_sum = 0, 0
+        b_p1_m_sum, b_p2_m_sum = 0, 0
 
         for r in results:
-            a_w += r['a_wins']; b_w += r['b_wins']; t += r['ties']
-            a_pts += r['a_pts']; b_pts += r['b_pts']
-            a_margins.extend(r['a_margins']); b_margins.extend(r['b_margins'])
+            a_as_p1_w += r['a_as_p1_wins']; a_as_p2_w += r['a_as_p2_wins']
+            b_as_p1_w += r['b_as_p1_wins']; b_as_p2_w += r['b_as_p2_wins']
+            t += r['ties']
+            
+            a_p1_pts += r['a_as_p1_pts']; a_p2_pts += r['a_as_p2_pts']
+            b_p1_pts += r['b_as_p1_pts']; b_p2_pts += r['b_as_p2_pts']
+            
+            a_p1_m_sum += r['a_as_p1_margin_sum']; a_p2_m_sum += r['a_as_p2_margin_sum']
+            b_p1_m_sum += r['b_as_p1_margin_sum']; b_p2_m_sum += r['b_as_p2_margin_sum']
 
-        # Win Rates (Ties = 0.5)
-        a_win_rate = ((a_w + (0.5 * t)) / games_per_matchup) * 100
-        b_win_rate = ((b_w + (0.5 * t)) / games_per_matchup) * 100
+        # Overall Win Rates
+        a_total_wins = a_as_p1_w + a_as_p2_w
+        b_total_wins = b_as_p1_w + b_as_p2_w
+        
+        a_win_rate = ((a_total_wins + (0.5 * t)) / games_per_matchup) * 100
+        b_win_rate = ((b_total_wins + (0.5 * t)) / games_per_matchup) * 100
         win_matrix[a_idx][b_idx] = a_win_rate
         win_matrix[b_idx][a_idx] = b_win_rate
         
-        # Average Points
-        score_matrix[a_idx][b_idx] = a_pts / games_per_matchup
-        score_matrix[b_idx][a_idx] = b_pts / games_per_matchup
+        # Average Points 
+        half_games = games_per_matchup / 2
+        p1_score_matrix[a_idx][b_idx] = a_p1_pts / half_games
+        p1_score_matrix[b_idx][a_idx] = b_p1_pts / half_games
+        p2_score_matrix[a_idx][b_idx] = a_p2_pts / half_games
+        p2_score_matrix[b_idx][a_idx] = b_p2_pts / half_games
 
-        # Margin of Victory
-        margin_matrix[a_idx][b_idx] = sum(a_margins) / max(1, a_w)
-        margin_matrix[b_idx][a_idx] = sum(b_margins) / max(1, b_w)
+        # Conditional Winning Margins (Only when they actually won!)
+        if a_as_p1_w > 0: p1_margin_matrix[a_idx][b_idx] = a_p1_m_sum / a_as_p1_w
+        if b_as_p1_w > 0: p1_margin_matrix[b_idx][a_idx] = b_p1_m_sum / b_as_p1_w
+        
+        if a_as_p2_w > 0: p2_margin_matrix[a_idx][b_idx] = a_p2_m_sum / a_as_p2_w
+        if b_as_p2_w > 0: p2_margin_matrix[b_idx][a_idx] = b_p2_m_sum / b_as_p2_w
         
         print(f"  -> {tag_a}: {a_win_rate:.1f}% | {tag_b}: {b_win_rate:.1f}% | Ties: {(t/games_per_matchup)*100:.1f}%")
 
     print("\nGenerating Master Heatmaps...")
-    plot_heatmaps(win_matrix, score_matrix, margin_matrix, agents)
+    plot_heatmaps(win_matrix, p1_score_matrix, p2_score_matrix, p1_margin_matrix, p2_margin_matrix, agents)
 
 if __name__ == '__main__':
     run_round_robin()
