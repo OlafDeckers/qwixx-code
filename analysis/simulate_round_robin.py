@@ -92,7 +92,6 @@ def simulate_matchup_chunk(args):
         'ties': 0,
         'a_as_p1_pts': 0, 'a_as_p2_pts': 0,
         'b_as_p1_pts': 0, 'b_as_p2_pts': 0,
-        # Track purely winning margins
         'a_as_p1_margin_sum': 0, 'a_as_p2_margin_sum': 0,
         'b_as_p1_margin_sum': 0, 'b_as_p2_margin_sum': 0
     }
@@ -101,7 +100,6 @@ def simulate_matchup_chunk(args):
         state = 0
         active_player = 1
         
-        # Perfect 50/50 split of starting positions
         a_is_p1 = (i % 2 == 0)
         agent_p1 = agent_a_type if a_is_p1 else agent_b_type
         agent_p2 = agent_b_type if a_is_p1 else agent_a_type
@@ -109,8 +107,8 @@ def simulate_matchup_chunk(args):
         while True:
             p1_r, p1_b, p1_p, p2_r, p2_b, p2_p = decode_state(state)
             if p1_p >= 3 or p2_p >= 3 or (MiniQwixxEnv.is_row_locked(p1_r, p2_r) and MiniQwixxEnv.is_row_locked(p1_b, p2_b)):
-                s1 = calculate_score(p1_r, p1_b, p1_p) # Player 1 (Starter)
-                s2 = calculate_score(p2_r, p2_b, p2_p) # Player 2 (Second)
+                s1 = calculate_score(p1_r, p1_b, p1_p) 
+                s2 = calculate_score(p2_r, p2_b, p2_p) 
                 
                 if a_is_p1:
                     stats['a_as_p1_pts'] += s1
@@ -185,6 +183,9 @@ def plot_heatmaps(win_matrix, p1_score_matrix, p2_score_matrix, p1_margin_matrix
     display_names = ['Solo\n(Raw Pts)', 'Score\n(0 Bonus)', 'Hybrid\n(5 Bonus)', 'Hybrid\n(10 Bonus)', 
                      'Hybrid\n(25 Bonus)', 'Hybrid\n(50 Bonus)', 'Win Prob\n(Inf Bonus)']
 
+    # Reusable font settings for bold/large text inside the heatmaps
+    annot_settings = {"size": 12, "weight": "bold"}
+
     def format_and_save(title, xlabel, ylabel, filename):
         plt.title(title, fontsize=16, fontweight='bold', pad=15)
         plt.ylabel(ylabel, fontsize=12, fontweight='bold')
@@ -200,52 +201,116 @@ def plot_heatmaps(win_matrix, p1_score_matrix, p2_score_matrix, p1_margin_matrix
     sns.heatmap(pd.DataFrame(win_matrix, index=display_names, columns=display_names), 
                 annot=True, fmt=".1f", cmap="RdYlGn", center=50.0, 
                 cbar_kws={'label': 'Win Rate % (Row vs Col)'},
-                linewidths=1, linecolor='black')
+                linewidths=1, linecolor='black', annot_kws=annot_settings)
     format_and_save("Qwixx AI: Overall Win Rate (%)", "Opponent Strategy (Column)", "Agent Strategy (Row)", "heatmap_1_win_rate.png")
 
-    # --- Plot 2 & 3: BOTH USE THE "BLUES" COLORMAP NOW ---
+    # --- Plot 2: P1 Points ---
     plt.figure(figsize=(10, 8))
     sns.heatmap(pd.DataFrame(p1_score_matrix, index=display_names, columns=display_names), 
                 annot=True, fmt=".2f", cmap="Blues", 
                 cbar_kws={'label': 'Average Points (As Starter)'},
-                linewidths=1, linecolor='black')
+                linewidths=1, linecolor='black', annot_kws=annot_settings)
     format_and_save("Qwixx AI: Average Points Scored (Starting First)", "Opponent (Player 2)", "Agent (Player 1)", "heatmap_2_p1_points.png")
 
+    # --- Plot 3: P2 Points ---
     plt.figure(figsize=(10, 8))
     sns.heatmap(pd.DataFrame(p2_score_matrix, index=display_names, columns=display_names), 
-                annot=True, fmt=".2f", cmap="Blues", # Changed to Blues!
+                annot=True, fmt=".2f", cmap="Blues", 
                 cbar_kws={'label': 'Average Points (As Second)'},
-                linewidths=1, linecolor='black')
+                linewidths=1, linecolor='black', annot_kws=annot_settings)
     format_and_save("Qwixx AI: Average Points Scored (Starting Second)", "Opponent (Player 1)", "Agent (Player 2)", "heatmap_3_p2_points.png")
 
-    # --- Plot 4 & 5: MARGINS OF VICTORY (CONDITIONAL ON WINNING) ---
+    # --- Plot 4: P1 Margins ---
     plt.figure(figsize=(10, 8))
     sns.heatmap(pd.DataFrame(p1_margin_matrix, index=display_names, columns=display_names), 
                 annot=True, fmt=".2f", cmap="Purples", 
                 cbar_kws={'label': 'Winning Margin (When P1 Wins)'},
-                linewidths=1, linecolor='black')
+                linewidths=1, linecolor='black', annot_kws=annot_settings)
     format_and_save("Qwixx AI: Winning Margin (Starting First)", "Opponent (Player 2)", "Agent (Player 1)", "heatmap_4_p1_margin.png")
 
+    # --- Plot 5: P2 Margins ---
     plt.figure(figsize=(10, 8))
     sns.heatmap(pd.DataFrame(p2_margin_matrix, index=display_names, columns=display_names), 
                 annot=True, fmt=".2f", cmap="Purples", 
                 cbar_kws={'label': 'Winning Margin (When P2 Wins)'},
-                linewidths=1, linecolor='black')
+                linewidths=1, linecolor='black', annot_kws=annot_settings)
     format_and_save("Qwixx AI: Winning Margin (Starting Second)", "Opponent (Player 1)", "Agent (Player 2)", "heatmap_5_p2_margin.png")
 
-    print("\nSuccessfully generated and saved 5 separate heatmaps:")
+
+    # ==========================================
+    # COMBINED PLOT: POINTS (P1 and P2)
+    # ==========================================
+    fig, axes = plt.subplots(1, 2, figsize=(18, 8))
+    
+    sns.heatmap(pd.DataFrame(p1_score_matrix, index=display_names, columns=display_names), 
+                annot=True, fmt=".2f", cmap="Blues", 
+                cbar_kws={'label': 'Average Points (As Starter)'},
+                linewidths=1, linecolor='black', annot_kws=annot_settings, ax=axes[0])
+    axes[0].set_title("Average Points Scored (Starting First)", fontsize=16, fontweight='bold', pad=15)
+    axes[0].set_xlabel("Opponent (Player 2)", fontsize=12, fontweight='bold')
+    axes[0].set_ylabel("Agent (Player 1)", fontsize=12, fontweight='bold')
+    axes[0].tick_params(axis='x', rotation=45)
+    axes[0].tick_params(axis='y', rotation=0)
+
+    sns.heatmap(pd.DataFrame(p2_score_matrix, index=display_names, columns=display_names), 
+                annot=True, fmt=".2f", cmap="Blues", 
+                cbar_kws={'label': 'Average Points (As Second)'},
+                linewidths=1, linecolor='black', annot_kws=annot_settings, ax=axes[1])
+    axes[1].set_title("Average Points Scored (Starting Second)", fontsize=16, fontweight='bold', pad=15)
+    axes[1].set_xlabel("Opponent (Player 1)", fontsize=12, fontweight='bold')
+    axes[1].set_ylabel("Agent (Player 2)", fontsize=12, fontweight='bold')
+    axes[1].tick_params(axis='x', rotation=45)
+    axes[1].tick_params(axis='y', rotation=0)
+
+    plt.tight_layout()
+    plt.savefig('plots/heatmap_combined_points.png', dpi=300, bbox_inches='tight')
+    plt.close()
+
+
+    # ==========================================
+    # COMBINED PLOT: MARGINS (P1 and P2)
+    # ==========================================
+    fig, axes = plt.subplots(1, 2, figsize=(18, 8))
+    
+    sns.heatmap(pd.DataFrame(p1_margin_matrix, index=display_names, columns=display_names), 
+                annot=True, fmt=".2f", cmap="Purples", 
+                cbar_kws={'label': 'Winning Margin (When P1 Wins)'},
+                linewidths=1, linecolor='black', annot_kws=annot_settings, ax=axes[0])
+    axes[0].set_title("Winning Margin (Starting First)", fontsize=16, fontweight='bold', pad=15)
+    axes[0].set_xlabel("Opponent (Player 2)", fontsize=12, fontweight='bold')
+    axes[0].set_ylabel("Agent (Player 1)", fontsize=12, fontweight='bold')
+    axes[0].tick_params(axis='x', rotation=45)
+    axes[0].tick_params(axis='y', rotation=0)
+
+    sns.heatmap(pd.DataFrame(p2_margin_matrix, index=display_names, columns=display_names), 
+                annot=True, fmt=".2f", cmap="Purples", 
+                cbar_kws={'label': 'Winning Margin (When P2 Wins)'},
+                linewidths=1, linecolor='black', annot_kws=annot_settings, ax=axes[1])
+    axes[1].set_title("Winning Margin (Starting Second)", fontsize=16, fontweight='bold', pad=15)
+    axes[1].set_xlabel("Opponent (Player 1)", fontsize=12, fontweight='bold')
+    axes[1].set_ylabel("Agent (Player 2)", fontsize=12, fontweight='bold')
+    axes[1].tick_params(axis='x', rotation=45)
+    axes[1].tick_params(axis='y', rotation=0)
+
+    plt.tight_layout()
+    plt.savefig('plots/heatmap_combined_margins.png', dpi=300, bbox_inches='tight')
+    plt.close()
+
+    print("\nSuccessfully generated and saved 7 heatmaps:")
     print("  1. plots/heatmap_1_win_rate.png")
-    print("  2. plots/heatmap_2_p1_points.png (Blues)")
-    print("  3. plots/heatmap_3_p2_points.png (Blues)")
-    print("  4. plots/heatmap_4_p1_margin.png (Winners Only)")
-    print("  5. plots/heatmap_5_p2_margin.png (Winners Only)")
+    print("  2. plots/heatmap_2_p1_points.png")
+    print("  3. plots/heatmap_3_p2_points.png")
+    print("  4. plots/heatmap_4_p1_margin.png")
+    print("  5. plots/heatmap_5_p2_margin.png")
+    print("  6. plots/heatmap_combined_points.png (NEW)")
+    print("  7. plots/heatmap_combined_margins.png (NEW)")
 
 
 def run_round_robin():
     agents = ['SOLO', 'SCORE', 'HYBRID_5', 'HYBRID_10', 'HYBRID_25', 'HYBRID_50', 'WIN']
     matchups = list(itertools.combinations(agents, 2))
     
-    games_per_matchup = 10000 
+    games_per_matchup = 100000 
     cores = mp.cpu_count()
     
     win_matrix = np.full((len(agents), len(agents)), 50.0)

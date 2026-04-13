@@ -190,7 +190,7 @@ def generate_comparison_plot():
     
     plt.xticks(x_axis, [f"{x}M" for x in x_axis])
     plt.ylim(0, max(50, max([max(v) for v in plot_data.values() if not np.isnan(v).all()]) + 10))
-    plt.axhline(y=48.0, color='gray', linestyle='--', alpha=0.7, label='Theoretical Max (~48%)')
+    plt.axhline(y=50.0, color='gray', linestyle='--', alpha=0.7, label='Theoretical Max (~50%)')
 
     plt.grid(True, linestyle='--', alpha=0.6)
     plt.legend(fontsize=12, loc='lower right')
