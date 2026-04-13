@@ -5,22 +5,10 @@ import random
 import time
 import multiprocessing as mp
 from core.state_encoder import decode_state
-from core.environment import MiniQwixxEnv
-
-ROW_ID_TO_COUNT = [0, 1, 1, 2, 1, 2, 3, 1, 2, 3, 4, 3, 4, 5]
+from core.environment import MiniQwixxEnv, calculate_score, roll_dice
 
 # ---> CHANGE THIS VALUE ONCE HERE <---
 NUM_SIMULATED_GAMES = 100000 
-
-def calculate_score(r_id, b_id, penalties):
-    count_r, count_b = ROW_ID_TO_COUNT[r_id], ROW_ID_TO_COUNT[b_id]
-    if r_id >= 11: count_r += 1
-    if b_id >= 11: count_b += 1
-    return ((count_r * (count_r + 1)) // 2) + ((count_b * (count_b + 1)) // 2) - (3 * penalties)
-
-def roll_dice():
-    return {'W1': random.randint(1, 3), 'W2': random.randint(1, 3), 
-            'R': random.randint(1, 3), 'B': random.randint(1, 3)}
 
 def simulate_games_chunk(args):
     """The worker function that runs a smaller chunk of games on a single CPU core."""

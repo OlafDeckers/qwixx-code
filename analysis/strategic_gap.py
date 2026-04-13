@@ -1,7 +1,6 @@
 import numpy as np
+from core.constants import ROW_ID_TO_COUNT
 from core.state_encoder import decode_state
-
-ROW_ID_TO_COUNT = [0, 1, 1, 2, 1, 2, 3, 1, 2, 3, 4, 3, 4, 5]
 
 def get_state_details(state_int):
     p1_r, p1_b, p1_p, p2_r, p2_b, p2_p = decode_state(state_int)

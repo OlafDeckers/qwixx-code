@@ -8,13 +8,10 @@ from scipy.optimize import linprog
 import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
-
+from core.constants import COLOR_ACTIONS, WHITE_ACTIONS
 from core.state_encoder import decode_state
-from core.environment import MiniQwixxEnv
-
-ROW_ID_TO_COUNT = [0, 1, 1, 2, 1, 2, 3, 1, 2, 3, 4, 3, 4, 5]
-WHITE_ACTIONS = ['R', 'B', None]
-COLOR_ACTIONS = [('R', '1'), ('R', '2'), ('B', '1'), ('B', '2'), None]
+from core.environment import MiniQwixxEnv, calculate_score
+from solvers.matrix_math import get_nash_probs
 
 # Global variables to hold all 7 Brains!
 V_solo = None
@@ -32,32 +29,6 @@ def init_worker():
     V_h50 = np.load('data/V_nash_hybrid_50.npy', mmap_mode='r')
     np.random.seed(os.getpid() + int(time.time()))
     random.seed(os.getpid() + int(time.time()))
-
-def calculate_score(r_id, b_id, penalties):
-    cr, cb = ROW_ID_TO_COUNT[r_id], ROW_ID_TO_COUNT[b_id]
-    if r_id >= 11: cr += 1
-    if b_id >= 11: cb += 1
-    return ((cr * (cr + 1)) // 2) + ((cb * (cb + 1)) // 2) - (3 * penalties)
-
-def get_nash_probs(A):
-    row_mins = np.min(A, axis=1)
-    col_maxs = np.max(A, axis=0)
-    if np.max(row_mins) == np.min(col_maxs):
-        p1 = np.zeros(A.shape[0]); p1[np.argmax(row_mins)] = 1.0
-        p2 = np.zeros(A.shape[1]); p2[np.argmin(col_maxs)] = 1.0
-        return p1, p2
-    
-    c1 = np.zeros(A.shape[0] + 1); c1[0] = -1
-    A_ub1 = np.zeros((A.shape[1], A.shape[0] + 1)); A_ub1[:, 0] = 1; A_ub1[:, 1:] = -A.T
-    res1 = linprog(c1, A_ub=A_ub1, b_ub=np.zeros(A.shape[1]), A_eq=np.array([[0] + [1]*A.shape[0]]), b_eq=np.array([1.0]), bounds=[(None, None)] + [(0, 1)]*A.shape[0], method='highs')
-    p1 = res1.x[1:] if res1.success else np.full(A.shape[0], 1.0/A.shape[0])
-
-    c2 = np.zeros(A.shape[1] + 1); c2[0] = 1
-    A_ub2 = np.zeros((A.shape[0], A.shape[1] + 1)); A_ub2[:, 0] = -1; A_ub2[:, 1:] = A
-    res2 = linprog(c2, A_ub=A_ub2, b_ub=np.zeros(A.shape[0]), A_eq=np.array([[0] + [1]*A.shape[1]]), b_eq=np.array([1.0]), bounds=[(None, None)] + [(0, 1)]*A.shape[1], method='highs')
-    p2 = res2.x[1:] if res2.success else np.full(A.shape[1], 1.0/A.shape[1])
-
-    return np.clip(p1, 0, 1) / np.sum(np.clip(p1, 0, 1)), np.clip(p2, 0, 1) / np.sum(np.clip(p2, 0, 1))
 
 def get_eval(state, active_idx, is_term, agent_type, evaluating_player):
     if is_term:

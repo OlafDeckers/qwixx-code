@@ -1,19 +1,13 @@
 import numpy as np
+from core.constants import ROW_ID_TO_COUNT
+from core.environment import calculate_score
 from core.state_encoder import encode_state
-
-ROW_ID_TO_COUNT = [0, 1, 1, 2, 1, 2, 3, 1, 2, 3, 4, 3, 4, 5]
-
-def calc_score(r_id, b_id, pens):
-    cr, cb = ROW_ID_TO_COUNT[r_id], ROW_ID_TO_COUNT[b_id]
-    if r_id >= 11: cr += 1 # Adds the lock bonus box
-    if b_id >= 11: cb += 1
-    return ((cr * (cr + 1)) // 2) + ((cb * (cb + 1)) // 2) - (3 * pens)
 
 def run_solo_test(V_solo, p1_r, p1_b, p1_p, p2_r, p2_b, p2_p, test_name):
     state_int = encode_state(p1_r, p1_b, p1_p, p2_r, p2_b, p2_p)
     
-    p1_score = calc_score(p1_r, p1_b, p1_p)
-    p2_score = calc_score(p2_r, p2_b, p2_p)
+    p1_score = calculate_score(p1_r, p1_b, p1_p)
+    p2_score = calculate_score(p2_r, p2_b, p2_p)
     
     # Extract values for when P1 is active
     p1_active_p1_expected = V_solo[state_int, 0, 0]

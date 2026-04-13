@@ -6,7 +6,7 @@ from collections import defaultdict
 from core.state_encoder import decode_state
 from core.environment import MiniQwixxEnv, calculate_score, UNIQUE_DICE, get_state_depth
 from core.constants import WHITE_ACTIONS, COLOR_ACTIONS, TOTAL_STATES
-from solvers.matrix_math import solve_zero_sum_matrix, get_nash_probs
+from solvers.matrix_math import get_nash_probs
 
 # Globals for the worker processes
 shared_V = None

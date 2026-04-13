@@ -3,19 +3,9 @@ import numpy as np
 import random
 import time
 from scipy import stats
-
+from core.constants import COLOR_ACTIONS
 from core.state_encoder import decode_state
-from core.environment import MiniQwixxEnv
-
-ROW_ID_TO_COUNT = [0, 1, 1, 2, 1, 2, 3, 1, 2, 3, 4, 3, 4, 5]
-WHITE_ACTIONS = ['R', 'B', None]
-COLOR_ACTIONS = [('R', '1'), ('R', '2'), ('B', '1'), ('B', '2'), None]
-
-def calculate_score(r_id, b_id, penalties):
-    cr, cb = ROW_ID_TO_COUNT[r_id], ROW_ID_TO_COUNT[b_id]
-    if r_id >= 11: cr += 1
-    if b_id >= 11: cb += 1
-    return ((cr * (cr + 1)) // 2) + ((cb * (cb + 1)) // 2) - (3 * penalties)
+from core.environment import MiniQwixxEnv, calculate_score
 
 def print_margin_of_error_proof():
     print("="*60)
