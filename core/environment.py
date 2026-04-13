@@ -80,10 +80,6 @@ for current_id in range(14):
             
         ROW_TRANSITIONS[current_id][target_idx] = get_row_id(target_idx, new_count)
 
-
-# ==========================================
-# 2. GAME ENVIRONMENT LOGIC
-# ==========================================
 class MiniQwixxEnv:
     
     @staticmethod
@@ -182,9 +178,6 @@ class MiniQwixxEnv:
                         p2_b = new_b
                         active_marked_color = True
 
-        # ------------------------------------------------
-        # 3. Resolve Penalties
-        # ------------------------------------------------
         # Active player gets a penalty ONLY if they marked nothing in both phases
         if active_player == 1:
             if not p1_marked_white and not active_marked_color:
@@ -192,10 +185,7 @@ class MiniQwixxEnv:
         else:
             if not p2_marked_white and not active_marked_color:
                 p2_p += 1
-
-        # ------------------------------------------------
-        # 4. Check Termination
-        # ------------------------------------------------
+                
         # Re-check locks in case the color phase triggered one
         red_locked = MiniQwixxEnv.is_row_locked(p1_r, p2_r)
         blue_locked = MiniQwixxEnv.is_row_locked(p1_b, p2_b)

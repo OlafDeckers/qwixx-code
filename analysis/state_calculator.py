@@ -203,7 +203,7 @@ if __name__ == '__main__':
     # Using your exact Mini-Qwixx defaults
     calculator = QwixxStateCalculator(
         num_colors=2, 
-        dice_sides=4, 
+        dice_sides=3, 
         lock_threshold=2, 
         max_penalties=3,
         locks_to_end=2
