@@ -1,5 +1,5 @@
 """
-analysis/test_turn_node.py
+tests/test_turn_node.py
 
 Visualizer for Subgame Perfect Equilibrium (Thesis Equations 7 & 8).
 This testing script isolates a single non-terminal state and a fixed stochastic 
