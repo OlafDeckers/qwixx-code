@@ -1,9 +1,42 @@
 import numpy as np
+import random
 from core.state_encoder import encode_state, decode_state
+from core.constants import ROW_ID_TO_COUNT
+from collections import Counter
 
-# ==========================================
-# 1. PRECOMPUTE ROW TRANSITIONS (RUNS ONCE)
-# ==========================================
+def calculate_score(r_id, b_id, penalties):
+    """Calculates the exact Qwixx score given row IDs and penalties."""
+    count_r, count_b = ROW_ID_TO_COUNT[r_id], ROW_ID_TO_COUNT[b_id]
+    if r_id >= 11: count_r += 1
+    if b_id >= 11: count_b += 1
+    return ((count_r * (count_r + 1)) // 2) + ((count_b * (count_b + 1)) // 2) - (3 * penalties)
+
+def roll_dice():
+    """Returns a random dice roll dictionary for Mini-Qwixx."""
+    return {'W1': random.randint(1, 3), 'W2': random.randint(1, 3), 
+            'R': random.randint(1, 3), 'B': random.randint(1, 3)}
+
+def _generate_unique_dice_combinations():
+    """Compresses 81 possible D3 rolls down to 54 unique permutations with probabilities."""
+    combinations = []
+    for w1 in [1, 2, 3]:
+        for w2 in [1, 2, 3]:
+            for r in [1, 2, 3]:
+                for b in [1, 2, 3]:
+                    w_tuple = tuple(sorted([w1, w2]))
+                    combinations.append((w_tuple[0], w_tuple[1], r, b))
+    counts = Counter(combinations)
+    return [{'W1': d[0], 'W2': d[1], 'R': d[2], 'B': d[3], 'prob': count / 81.0} for d, count in counts.items()]
+
+# Compute this once globally so other scripts can import it
+UNIQUE_DICE = _generate_unique_dice_combinations()
+
+def get_state_depth(state_int):
+    """Calculates the topological depth (Marks + Penalties) of a state."""
+    p1_r, p1_b, p1_p, p2_r, p2_b, p2_p = decode_state(state_int)
+    return ROW_ID_TO_COUNT[p1_r] + ROW_ID_TO_COUNT[p1_b] + p1_p + \
+           ROW_ID_TO_COUNT[p2_r] + ROW_ID_TO_COUNT[p2_b] + p2_p
+
 # Maps (rightmost_index, count) to a unique Row ID (0 to 13)
 def get_row_id(idx, count):
     if idx == -1: return 0

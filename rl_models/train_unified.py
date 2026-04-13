@@ -4,7 +4,7 @@ import random
 import time
 import multiprocessing as mp
 from core.state_encoder import decode_state
-from core.environment import MiniQwixxEnv
+from core.environment import MiniQwixxEnv, calculate_score, roll_dice
 from core.constants import ROW_ID_TO_COUNT, WHITE_ACTIONS, COLOR_ACTIONS, TOTAL_STATES
 from solvers.matrix_math import solve_zero_sum_matrix
 from rl_models.agents import RewardShapingAgent, TDLambdaAgent, BoltzmannAgent
@@ -16,16 +16,6 @@ def init_worker(shared_array):
     shared_V_learned = np.frombuffer(shared_array, dtype=np.float32).reshape((TOTAL_STATES, 2))
     np.random.seed(os.getpid() + int(time.time()))
     random.seed(os.getpid() + int(time.time()))
-
-def calculate_score(r_id, b_id, penalties):
-    count_r, count_b = ROW_ID_TO_COUNT[r_id], ROW_ID_TO_COUNT[b_id]
-    if r_id >= 11: count_r += 1
-    if b_id >= 11: count_b += 1
-    return ((count_r * (count_r + 1)) // 2) + ((count_b * (count_b + 1)) // 2) - (3 * penalties)
-
-def roll_dice():
-    return {'W1': random.randint(1, 3), 'W2': random.randint(1, 3), 
-            'R': random.randint(1, 3), 'B': random.randint(1, 3)}
 
 def worker_process(args):
     # Notice how configuration is cleanly injected here
@@ -180,7 +170,7 @@ def run_benchmark(benchmark_episodes=100_000, target_episodes=20_000_000):
     
     for model_type in models:
         print(f"Benchmarking [{model_type.upper()}]...")
-        shared_array_base = mp.Array('f', 1048576 * 2, lock=False)
+        shared_array_base = mp.Array('f', TOTAL_STATES * 2, lock=False)
         
         param_bounds = (0.5, 0.01) if model_type == 'boltzmann' else (1.0, 0.01)
         alpha_bounds = (0.1, 0.01)

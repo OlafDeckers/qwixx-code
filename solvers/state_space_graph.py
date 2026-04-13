@@ -3,22 +3,8 @@ import time
 import numpy as np
 from collections import deque
 from core.state_encoder import encode_state, decode_state
-from core.environment import MiniQwixxEnv
-from core.constants import ROW_ID_TO_COUNT, WHITE_ACTIONS, COLOR_ACTIONS, TOTAL_STATES
-
-def get_state_depth(state_int):
-    """
-    Calculates the topological depth of a state.
-    Depth = Total Marks (P1 + P2) + Total Penalties (P1 + P2)
-    Since every valid turn strictly increases the depth, sorting by 
-    this guarantees a perfect topological order for Backward Induction.
-    """
-    p1_r, p1_b, p1_p, p2_r, p2_b, p2_p = decode_state(state_int)
-    
-    depth = ROW_ID_TO_COUNT[p1_r] + ROW_ID_TO_COUNT[p1_b] + p1_p + \
-            ROW_ID_TO_COUNT[p2_r] + ROW_ID_TO_COUNT[p2_b] + p2_p
-            
-    return depth
+from core.environment import MiniQwixxEnv, get_state_depth
+from core.constants import WHITE_ACTIONS, COLOR_ACTIONS
 
 def generate_state_space():
     print("Initializing Breadth-First Search (BFS)...")
