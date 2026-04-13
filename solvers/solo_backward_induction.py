@@ -3,19 +3,16 @@ import time
 import numpy as np
 import multiprocessing as mp
 from collections import defaultdict, Counter
-
 from core.state_encoder import decode_state
 from core.environment import MiniQwixxEnv
-
-# Number of marks for each Row ID (0 to 13)
-ROW_ID_TO_COUNT = [0, 1, 1, 2, 1, 2, 3, 1, 2, 3, 4, 3, 4, 5]
+from core.constants import WHITE_ACTIONS, COLOR_ACTIONS, TOTAL_STATES, ROW_ID_TO_COUNT
 
 shared_V_solo = None
 
 def init_worker(shared_array):
     global shared_V_solo
-    # Dimensions: [1,048,576 states] x [2 active players] x [2 scores (P1, P2)]
-    shared_V_solo = np.frombuffer(shared_array, dtype=np.float32).reshape((1048576, 2, 2))
+    # Dimensions: [TOTAL_STATES states] x [2 active players] x [2 scores (P1, P2)]
+    shared_V_solo = np.frombuffer(shared_array, dtype=np.float32).reshape((TOTAL_STATES, 2, 2))
 
 def calculate_score(r_id, b_id, penalties):
     """Applies the triangular number formula for scoring: x(x+1)/2 - 3p"""
@@ -127,7 +124,7 @@ def run_solo_backward_induction():
     print(f"Total Unique States: {len(dag)} | Total Depth Levels: {len(depths_sorted)}")
 
     # Shared Memory Array
-    shared_array_base = mp.Array('f', 1048576 * 2 * 2, lock=False)
+    shared_array_base = mp.Array('f', TOTAL_STATES * 2 * 2, lock=False)
     
     start_time = time.time()
     cores = mp.cpu_count()
@@ -139,7 +136,7 @@ def run_solo_backward_induction():
             pool.map(solve_single_state_solo, states_at_depth)
             print(f"Completed Depth {depth:02d} | States solved: {len(states_at_depth)}")
 
-    final_V_solo = np.frombuffer(shared_array_base, dtype=np.float32).reshape((1048576, 2, 2))
+    final_V_solo = np.frombuffer(shared_array_base, dtype=np.float32).reshape((TOTAL_STATES, 2, 2))
     
     os.makedirs('data', exist_ok=True)
     np.save('data/V_solo.npy', final_V_solo)

@@ -4,11 +4,9 @@ import numpy as np
 import multiprocessing as mp
 from collections import defaultdict, Counter
 from scipy.optimize import linprog
-
 from core.state_encoder import decode_state
 from core.environment import MiniQwixxEnv
-
-ROW_ID_TO_COUNT = [0, 1, 1, 2, 1, 2, 3, 1, 2, 3, 4, 3, 4, 5]
+from core.constants import ROW_ID_TO_COUNT, WHITE_ACTIONS, COLOR_ACTIONS, TOTAL_STATES
 
 shared_V_win = None
 
@@ -16,7 +14,7 @@ def init_worker(shared_array):
     global shared_V_win
     # Shape is simply [1,048,576 states] x [2 active players]
     # It tracks the Win Probability Margin (from +1.0 for P1 Win to -1.0 for P2 Win)
-    shared_V_win = np.frombuffer(shared_array, dtype=np.float32).reshape((1048576, 2))
+    shared_V_win = np.frombuffer(shared_array, dtype=np.float32).reshape((TOTAL_STATES, 2))
 
 def calculate_score(r_id, b_id, penalties):
     count_r, count_b = ROW_ID_TO_COUNT[r_id], ROW_ID_TO_COUNT[b_id]
@@ -36,8 +34,6 @@ def get_unique_dice_combinations():
     return [{'W1': d[0], 'W2': d[1], 'R': d[2], 'B': d[3], 'prob': count / 81.0} for d, count in counts.items()]
 
 UNIQUE_DICE = get_unique_dice_combinations()
-WHITE_ACTIONS = ['R', 'B', None]
-COLOR_ACTIONS = [('R', '1'), ('R', '2'), ('B', '1'), ('B', '2'), None]
 
 def get_nash_probs(A):
     """Fast solver that returns the (P1_probs, P2_probs) policy."""
@@ -155,7 +151,7 @@ def run_win_prob_induction():
     for state in dag: depth_groups[get_state_depth(state)].append(state)
     depths_sorted = sorted(depth_groups.keys(), reverse=True)
     
-    shared_array_base = mp.Array('f', 1048576 * 2, lock=False)
+    shared_array_base = mp.Array('f', TOTAL_STATES * 2, lock=False)
     
     start_time = time.time()
     cores = mp.cpu_count()
@@ -167,7 +163,7 @@ def run_win_prob_induction():
             pool.map(solve_single_state, states)
             print(f"Completed Depth {depth:02d} | States solved: {len(states)}")
 
-    final_V_win = np.frombuffer(shared_array_base, dtype=np.float32).reshape((1048576, 2))
+    final_V_win = np.frombuffer(shared_array_base, dtype=np.float32).reshape((TOTAL_STATES, 2))
     os.makedirs('data', exist_ok=True)
     np.save('data/V_nash_win_prob.npy', final_V_win)
     

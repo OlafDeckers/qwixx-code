@@ -4,11 +4,7 @@ import numpy as np
 from collections import deque
 from core.state_encoder import encode_state, decode_state
 from core.environment import MiniQwixxEnv
-
-# Precomputed lookup table to find the "depth" of a row ID
-# Maps Row ID (0-13) to the total number of marks in that row.
-# Derived from environment.py's get_row_details()
-ROW_ID_TO_COUNT = [0, 1, 1, 2, 1, 2, 3, 1, 2, 3, 4, 3, 4, 5]
+from core.constants import ROW_ID_TO_COUNT, WHITE_ACTIONS, COLOR_ACTIONS, TOTAL_STATES
 
 def get_state_depth(state_int):
     """
@@ -35,19 +31,15 @@ def generate_state_space():
             for r in [1, 2, 3]:
                 for b in [1, 2, 3]:
                     dice_combinations.append({'W1': w1, 'W2': w2, 'R': r, 'B': b})
-                    
-    # 2. Define all valid action inputs
-    white_actions = ['R', 'B', None]
-    color_actions = [('R', '1'), ('R', '2'), ('B', '1'), ('B', '2'), None]
     
-    # 3. Initialize BFS structures
+    # 2. Initialize BFS structures
     start_state = encode_state(0, 0, 0, 0, 0, 0)
     visited = set([start_state])
     queue = deque([start_state])
     
     states_processed = 0
     
-    # 4. BFS Loop
+    # 3. BFS Loop
     while queue:
         current_state = queue.popleft()
         states_processed += 1
@@ -68,9 +60,9 @@ def generate_state_space():
         # transitioning when Player 1 is active, and when Player 2 is active.
         for active_player in [1, 2]:
             for dice in dice_combinations:
-                for a_w1 in white_actions:
-                    for a_w2 in white_actions:
-                        for a_c in color_actions:
+                for a_w1 in WHITE_ACTIONS:
+                    for a_w2 in WHITE_ACTIONS:
+                        for a_c in COLOR_ACTIONS:
                             
                             # Apply the environment transition
                             next_state, _ = MiniQwixxEnv.step(

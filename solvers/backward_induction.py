@@ -4,18 +4,16 @@ import numpy as np
 import multiprocessing as mp
 from collections import defaultdict, Counter
 from scipy.optimize import linprog
-
 from core.state_encoder import decode_state
 from core.environment import MiniQwixxEnv
-
-ROW_ID_TO_COUNT = [0, 1, 1, 2, 1, 2, 3, 1, 2, 3, 4, 3, 4, 5]
+from core.constants import ROW_ID_TO_COUNT, WHITE_ACTIONS, COLOR_ACTIONS, TOTAL_STATES
 
 shared_V_nash = None
 
 def init_worker(shared_array):
     global shared_V_nash
     # We now track BOTH raw scores! Shape: [1,048,576 states] x [2 active players] x [2 scores]
-    shared_V_nash = np.frombuffer(shared_array, dtype=np.float32).reshape((1048576, 2, 2))
+    shared_V_nash = np.frombuffer(shared_array, dtype=np.float32).reshape((TOTAL_STATES, 2, 2))
 
 def calculate_score(r_id, b_id, penalties):
     count_r, count_b = ROW_ID_TO_COUNT[r_id], ROW_ID_TO_COUNT[b_id]
@@ -162,8 +160,7 @@ def run_backward_induction():
     for state in dag: depth_groups[get_state_depth(state)].append(state)
     depths_sorted = sorted(depth_groups.keys(), reverse=True)
     
-    # 1048576 states * 2 players * 2 scores
-    shared_array_base = mp.Array('f', 1048576 * 2 * 2, lock=False)
+    shared_array_base = mp.Array('f', TOTAL_STATES * 2 * 2, lock=False)
     
     start_time = time.time()
     cores = mp.cpu_count()
@@ -175,7 +172,7 @@ def run_backward_induction():
             pool.map(solve_single_state, states)
             print(f"Completed Depth {depth:02d} | States solved: {len(states)}")
 
-    final_V_nash = np.frombuffer(shared_array_base, dtype=np.float32).reshape((1048576, 2, 2))
+    final_V_nash = np.frombuffer(shared_array_base, dtype=np.float32).reshape((TOTAL_STATES, 2, 2))
     os.makedirs('data', exist_ok=True)
     np.save('data/V_nash.npy', final_V_nash)
     
