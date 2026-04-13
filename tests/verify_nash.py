@@ -1,23 +1,39 @@
+"""
+tests/verify_nash.py
+
+Zero-Sum Symmetry and Equilibrium Diagnostic Tool.
+This script proves the mathematical soundness of the exact Dynamic Programming (DP) 
+arrays. In a perfectly symmetric zero-sum game, swapping Player 1 and Player 2's 
+board states must yield the exact inverse Expected Value. 
+
+Furthermore, it empirically demonstrates the "First-Mover Advantage" inherent 
+in the DAG structure: an empty board does not yield an expected value of 0.0, 
+but rather a slight positive advantage for the active player.
+"""
+
 import numpy as np
 from core.constants import ROW_ID_TO_COUNT
 from core.environment import calculate_score
 from core.state_encoder import encode_state
 
 def run_test(V_nash, p1_r, p1_b, p1_p, p2_r, p2_b, p2_p, test_name):
+    # Map the formal state tuple s to its scalar integer ID
     state_int = encode_state(p1_r, p1_b, p1_p, p2_r, p2_b, p2_p)
     
     p1_score = calculate_score(p1_r, p1_b, p1_p)
     p2_score = calculate_score(p2_r, p2_b, p2_p)
     raw_diff = p1_score - p2_score
     
-    # NEW: Unpack the exact scores from the 3D array
+    # Extract the exact mathematical expectations E[S_1] and E[S_2] 
+    # computed via Backward Induction when Player 1 is the active player.
     p1_active_s1 = V_nash[state_int, 0, 0]
     p1_active_s2 = V_nash[state_int, 0, 1]
-    val_p1 = p1_active_s1 - p1_active_s2 # The expected difference
+    val_p1 = p1_active_s1 - p1_active_s2 # Expected point gap (V_SD)
     
+    # Extract the expectations when Player 2 is the active player.
     p2_active_s1 = V_nash[state_int, 1, 0]
     p2_active_s2 = V_nash[state_int, 1, 1]
-    val_p2 = p2_active_s1 - p2_active_s2 # The expected difference
+    val_p2 = p2_active_s1 - p2_active_s2 # Expected point gap (V_SD)
     
     print(f"\n{'='*65}")
     print(f"TEST: {test_name}")
@@ -33,7 +49,10 @@ def run_test(V_nash, p1_r, p1_b, p1_p, p2_r, p2_b, p2_p, test_name):
     print(f"    Expected Scores -> P1: {p2_active_s1:.2f} | P2: {p2_active_s2:.2f}")
     print(f"    Expected Diff   -> {val_p2:.4f}")
     
-    # Check Symmetry for identical boards
+    # Zero-Sum Symmetry Check:
+    # If the board is perfectly symmetric, the advantage P1 has when active 
+    # must perfectly mirror the advantage P2 has when active.
+    # Therefore, V(s, P1_active) + V(s, P2_active) must equal 0.
     if p1_r == p2_r and p1_b == p2_b and p1_p == p2_p:
         if abs(val_p1 + val_p2) < 0.001:
             print("  -> [PASS] Perfect Symmetry Detected.")

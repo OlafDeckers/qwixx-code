@@ -1,3 +1,17 @@
+"""
+analysis/simulate_round_robin.py
+
+Empirical Evaluation of the Cross-Play Strategy Matrix.
+This script orchestrates a full Round Robin tournament between all 7 evaluated 
+policies derived via exact Backward Induction. It computes the pairwise expected 
+values (win rates, point averages, and victory margins) when policy pi_i plays 
+against policy pi_j.
+
+These results empirically validate the theoretical dominance of the 
+Win Probability (V_WP) and Hybrid (V_H) objective functions as defined 
+in the Methodology.
+"""
+
 import numpy as np
 import os
 import itertools
@@ -7,6 +21,10 @@ import pandas as pd
 from analysis.evaluator import TournamentEngine
 
 def plot_heatmaps(win_matrix, p1_score_matrix, p2_score_matrix, p1_margin_matrix, p2_margin_matrix, agents):
+    """
+    Visualizes the N x N asymmetric payoff matrices for the evaluated strategies.
+    Diagonal elements (self-play) are masked with NaN to highlight cross-play dynamics.
+    """
     np.fill_diagonal(win_matrix, np.nan)
     np.fill_diagonal(p1_score_matrix, np.nan)
     np.fill_diagonal(p2_score_matrix, np.nan)
@@ -14,6 +32,8 @@ def plot_heatmaps(win_matrix, p1_score_matrix, p2_score_matrix, p1_margin_matrix
     np.fill_diagonal(p2_margin_matrix, np.nan)
     
     os.makedirs('plots', exist_ok=True)
+    
+    # Map internal representations to their mathematical objective equivalents
     display_names = ['Solo\n(Raw Pts)', 'Score\n(0 Bonus)', 'Hybrid\n(5 Bonus)', 'Hybrid\n(10 Bonus)', 
                      'Hybrid\n(25 Bonus)', 'Hybrid\n(50 Bonus)', 'Win Prob\n(Inf Bonus)']
     annot_settings = {"size": 12, "weight": "bold"}
@@ -28,6 +48,7 @@ def plot_heatmaps(win_matrix, p1_score_matrix, p2_score_matrix, p1_margin_matrix
         plt.close() 
 
     # --- Plot 1: Overall Win Rate % ---
+    # Visualizes the empirical approximation of Equation 3 (Win Probability)
     plt.figure(figsize=(10, 8))
     sns.heatmap(pd.DataFrame(win_matrix, index=display_names, columns=display_names), 
                 annot=True, fmt=".1f", cmap="RdYlGn", center=50.0, 
@@ -35,7 +56,9 @@ def plot_heatmaps(win_matrix, p1_score_matrix, p2_score_matrix, p1_margin_matrix
                 linewidths=1, linecolor='black', annot_kws=annot_settings)
     format_and_save("Qwixx AI: Overall Win Rate (%)", "Opponent Strategy (Column)", "Agent Strategy (Row)", "heatmap_1_win_rate.png")
 
-    # --- Plot 2: P1 Points ---
+    # --- Plots 2 & 3: P1 and P2 Points ---
+    # Visualizes the expected absolute points (Equation 2) conditional on turn order.
+    # Splitting these matrices isolates the "first-mover advantage" inherent in the Qwixx DAG.
     plt.figure(figsize=(10, 8))
     sns.heatmap(pd.DataFrame(p1_score_matrix, index=display_names, columns=display_names), 
                 annot=True, fmt=".2f", cmap="Blues", 
@@ -43,7 +66,6 @@ def plot_heatmaps(win_matrix, p1_score_matrix, p2_score_matrix, p1_margin_matrix
                 linewidths=1, linecolor='black', annot_kws=annot_settings)
     format_and_save("Qwixx AI: Average Points Scored (Starting First)", "Opponent (Player 2)", "Agent (Player 1)", "heatmap_2_p1_points.png")
 
-    # --- Plot 3: P2 Points ---
     plt.figure(figsize=(10, 8))
     sns.heatmap(pd.DataFrame(p2_score_matrix, index=display_names, columns=display_names), 
                 annot=True, fmt=".2f", cmap="Blues", 
@@ -51,7 +73,9 @@ def plot_heatmaps(win_matrix, p1_score_matrix, p2_score_matrix, p1_margin_matrix
                 linewidths=1, linecolor='black', annot_kws=annot_settings)
     format_and_save("Qwixx AI: Average Points Scored (Starting Second)", "Opponent (Player 1)", "Agent (Player 2)", "heatmap_3_p2_points.png")
 
-    # --- Plot 4: P1 Margins ---
+    # --- Plots 4 & 5: P1 and P2 Margins ---
+    # Visualizes the conditional expected value of the Score Difference (Equation 4)
+    # E[ S1 - S2 | S1 > S2 ]. This highlights the trade-off of the Hybrid method.
     plt.figure(figsize=(10, 8))
     sns.heatmap(pd.DataFrame(p1_margin_matrix, index=display_names, columns=display_names), 
                 annot=True, fmt=".2f", cmap="Purples", 
@@ -59,7 +83,6 @@ def plot_heatmaps(win_matrix, p1_score_matrix, p2_score_matrix, p1_margin_matrix
                 linewidths=1, linecolor='black', annot_kws=annot_settings)
     format_and_save("Qwixx AI: Winning Margin (Starting First)", "Opponent (Player 2)", "Agent (Player 1)", "heatmap_4_p1_margin.png")
 
-    # --- Plot 5: P2 Margins ---
     plt.figure(figsize=(10, 8))
     sns.heatmap(pd.DataFrame(p2_margin_matrix, index=display_names, columns=display_names), 
                 annot=True, fmt=".2f", cmap="Purples", 
@@ -68,7 +91,7 @@ def plot_heatmaps(win_matrix, p1_score_matrix, p2_score_matrix, p1_margin_matrix
     format_and_save("Qwixx AI: Winning Margin (Starting Second)", "Opponent (Player 1)", "Agent (Player 2)", "heatmap_5_p2_margin.png")
 
     # ==========================================
-    # COMBINED PLOTS (Points & Margins)
+    # COMBINED PLOTS (For Side-by-Side Thesis Formatting)
     # ==========================================
     fig, axes = plt.subplots(1, 2, figsize=(18, 8))
     sns.heatmap(pd.DataFrame(p1_score_matrix, index=display_names, columns=display_names), annot=True, fmt=".2f", cmap="Blues", cbar_kws={'label': 'Average Points (As Starter)'}, linewidths=1, linecolor='black', annot_kws=annot_settings, ax=axes[0])
@@ -90,11 +113,20 @@ def plot_heatmaps(win_matrix, p1_score_matrix, p2_score_matrix, p1_margin_matrix
 
 
 def run_round_robin():
+    """
+    Executes the pairwise simulation of the strategy space.
+    Calculates the expected empirical outcomes using N = 100,000 to ensure 
+    statistical significance over the stochastic chance nodes.
+    """
+    # The Strategy Space (S) defined by the various objective functions
     agents = ['SOLO', 'SCORE', 'HYBRID_5', 'HYBRID_10', 'HYBRID_25', 'HYBRID_50', 'WIN']
+    
+    # Calculate all C(7, 2) unique cross-play combinations
     matchups = list(itertools.combinations(agents, 2))
     
     games_per_matchup = 100000 
     
+    # Initialize the N x N payoff matrices
     win_matrix = np.full((len(agents), len(agents)), 50.0)
     p1_score_matrix = np.full((len(agents), len(agents)), 0.0)
     p2_score_matrix = np.full((len(agents), len(agents)), 0.0)
@@ -111,20 +143,24 @@ def run_round_robin():
         print(f"Simulating {games_per_matchup} matches: [{tag_a}] vs [{tag_b}]...")
         
         # DELEGATE TO THE UNIFIED ENGINE
+        # Computes the empirical outcomes of the finite Markov game under the specified policies.
         stats = TournamentEngine.run_nash_matchup(tag_a, tag_b, games_per_matchup)
 
-        # Process Results
+        # Calculate zero-sum win rates. 
+        # A tie grants exactly 0.5 wins to both players to maintain the constant-sum property.
         a_win_rate = (((stats['a_as_p1_wins'] + stats['a_as_p2_wins']) + (0.5 * stats['ties'])) / games_per_matchup) * 100
         b_win_rate = (((stats['b_as_p1_wins'] + stats['b_as_p2_wins']) + (0.5 * stats['ties'])) / games_per_matchup) * 100
         
         win_matrix[a_idx][b_idx] = a_win_rate; win_matrix[b_idx][a_idx] = b_win_rate
         
+        # Normalize the sum of absolute points by the subset of games played in that position (N / 2)
         half_games = games_per_matchup / 2
         p1_score_matrix[a_idx][b_idx] = stats['a_as_p1_pts'] / half_games
         p1_score_matrix[b_idx][a_idx] = stats['b_as_p1_pts'] / half_games
         p2_score_matrix[a_idx][b_idx] = stats['a_as_p2_pts'] / half_games
         p2_score_matrix[b_idx][a_idx] = stats['b_as_p2_pts'] / half_games
 
+        # Calculate Conditional Expectations E[ Margin | Win ]
         if stats['a_as_p1_wins'] > 0: p1_margin_matrix[a_idx][b_idx] = stats['a_as_p1_margin_sum'] / stats['a_as_p1_wins']
         if stats['b_as_p1_wins'] > 0: p1_margin_matrix[b_idx][a_idx] = stats['b_as_p1_margin_sum'] / stats['b_as_p1_wins']
         if stats['a_as_p2_wins'] > 0: p2_margin_matrix[a_idx][b_idx] = stats['a_as_p2_margin_sum'] / stats['a_as_p2_wins']

@@ -1,3 +1,13 @@
+"""
+tests/verify_solo.py
+
+Solo Baseline Diagnostic Tool.
+This script validates the "Multiplayer Solitaire" MDP solver (Thesis Equations 9-12).
+It proves that under the Solo objective, the agents strictly maximize their own expected 
+points and completely ignore zero-sum dynamics, leaving themselves exposed to 
+adversarial traps.
+"""
+
 import numpy as np
 from core.constants import ROW_ID_TO_COUNT
 from core.environment import calculate_score
@@ -31,9 +41,9 @@ def run_solo_test(V_solo, p1_r, p1_b, p1_p, p2_r, p2_b, p2_p, test_name):
     print(f"    -> Expected P1 Final Score: {p2_active_p1_expected:.4f}")
     print(f"    -> Expected P2 Final Score: {p2_active_p2_expected:.4f}")
     
-    # Check Symmetry for identical boards
+    # Mathematical Symmetry Check for the Independent MDPs
     if p1_r == p2_r and p1_b == p2_b and p1_p == p2_p:
-        # If P1 is active, P1's score should equal P2's score when P2 is active
+        # If P1 is active, P1's score should perfectly match P2's score when P2 is active
         sym_check_1 = abs(p1_active_p1_expected - p2_active_p2_expected) < 0.001
         sym_check_2 = abs(p1_active_p2_expected - p2_active_p1_expected) < 0.001
         if sym_check_1 and sym_check_2:
@@ -59,7 +69,6 @@ if __name__ == '__main__':
     v1_p1_act_p1, _, _, v1_p2_act_p2 = run_solo_test(V_solo, 10, 5, 0,  2, 1, 1, "P1 Dominating")
     v2_p1_act_p1, _, _, v2_p2_act_p2 = run_solo_test(V_solo, 2, 1, 1,  10, 5, 0, "P2 Dominating")
     
-    # If P1 is dominating and active, it should equal P2 dominating and active
     if abs(v1_p1_act_p1 - v2_p2_act_p2) < 0.001:
         print("\n  [PASS] THE MIRROR TEST SUCCEEDED! The Solo AI treats both sides of the board identically.")
     else:

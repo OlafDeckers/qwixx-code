@@ -1,3 +1,12 @@
+"""
+core/environment.py
+
+The Markov Decision Process (MDP) Formulation for Mini-Qwixx.
+This module strictly enforces the game rules, acting as the transition function 
+T(s, a, d) -> s'. It also handles state encoding, scoring (Equation 2), and the 
+probability distributions of the stochastic chance nodes.
+"""
+
 import numpy as np
 import random
 from core.state_encoder import encode_state, decode_state
@@ -5,19 +14,31 @@ from core.constants import ROW_ID_TO_COUNT
 from collections import Counter
 
 def calculate_score(r_id, b_id, penalties):
-    """Calculates the exact Qwixx score given row IDs and penalties."""
+    """
+    Thesis Reference: Equation 2 (Triangular Number Scoring Rule).
+    Computes the terminal score for a player based on their crossed boxes and penalties.
+    Score = [ c_red(c_red + 1)/2 ] + [ c_blue(c_blue + 1)/2 ] - 3*p
+    """
     count_r, count_b = ROW_ID_TO_COUNT[r_id], ROW_ID_TO_COUNT[b_id]
+    
+    # If the row is locked (ID >= 11), the player receives a +1 cross bonus
     if r_id >= 11: count_r += 1
     if b_id >= 11: count_b += 1
+        
     return ((count_r * (count_r + 1)) // 2) + ((count_b * (count_b + 1)) // 2) - (3 * penalties)
 
 def roll_dice():
-    """Returns a random dice roll dictionary for Mini-Qwixx."""
+    """Generates the stochastic variable d at a chance node."""
     return {'W1': random.randint(1, 3), 'W2': random.randint(1, 3), 
             'R': random.randint(1, 3), 'B': random.randint(1, 3)}
 
 def _generate_unique_dice_combinations():
-    """Compresses 81 possible D3 rolls down to 54 unique permutations with probabilities."""
+    """
+    Computes the exact probability distribution P(d) for the chance nodes.
+    A D3 dice roll yields 3^4 = 81 total outcomes. Because the two white dice 
+    (W1, W2) are indistinguishable, we collapse symmetrical permutations into 
+    54 unique outcomes, weighting them by their combinatorial probability.
+    """
     combinations = []
     for w1 in [1, 2, 3]:
         for w2 in [1, 2, 3]:
@@ -28,17 +49,30 @@ def _generate_unique_dice_combinations():
     counts = Counter(combinations)
     return [{'W1': d[0], 'W2': d[1], 'R': d[2], 'B': d[3], 'prob': count / 81.0} for d, count in counts.items()]
 
-# Compute this once globally so other scripts can import it
+# Compute the probability space once globally for the solver algorithms
 UNIQUE_DICE = _generate_unique_dice_combinations()
 
 def get_state_depth(state_int):
-    """Calculates the topological depth (Marks + Penalties) of a state."""
+    """
+    Calculates the topological depth of state s ∈ S.
+    The strict left-to-right marking rule and monotonically increasing penalties 
+    guarantee the state space forms a Directed Acyclic Graph (DAG). 
+    Depth = Total Marks + Total Penalties.
+    """
     p1_r, p1_b, p1_p, p2_r, p2_b, p2_p = decode_state(state_int)
     return ROW_ID_TO_COUNT[p1_r] + ROW_ID_TO_COUNT[p1_b] + p1_p + \
            ROW_ID_TO_COUNT[p2_r] + ROW_ID_TO_COUNT[p2_b] + p2_p
 
-# Maps (rightmost_index, count) to a unique Row ID (0 to 13)
+# ==========================================
+# 1. STATE SPACE ENCODING (The Tuple representation)
+# ==========================================
+# To evaluate a row optimally, the MDP only needs two pieces of information: 
+# the right-most crossed index (dictating legal future moves) and the total 
+# number of crossed boxes (for terminal scoring). 
+# We map these (index, count) pairs to a single integer ID [0 to 13].
+
 def get_row_id(idx, count):
+    """Maps a formal (rightmost_index, count) state to its composite Row ID."""
     if idx == -1: return 0
     if idx == 0: return 1
     if idx == 1: return count + 1
@@ -47,8 +81,8 @@ def get_row_id(idx, count):
     if idx == 4: return count + 7  # Lock box (counts 4, 5, 6 map to 11, 12, 13)
     return -1
 
-# Decode Row ID back to (rightmost_index, count)
 def get_row_details(row_id):
+    """Decodes a composite Row ID back to its (rightmost_index, count) state."""
     if row_id == 0: return -1, 0
     if row_id == 1: return 0, 1
     if 2 <= row_id <= 3: return 1, row_id - 1
@@ -57,7 +91,11 @@ def get_row_details(row_id):
     if 11 <= row_id <= 13: return 4, row_id - 7
     return -1, 0
 
-# Build the 14x5 Transition Matrix
+# ==========================================
+# 2. TRANSITION MATRIX (Row-Level Irreversibility)
+# ==========================================
+# Precomputes the deterministic transition matrix for a single row.
+# This matrix physically enforces the irreversibility of the DAG.
 # ROW_TRANSITIONS[current_row_id][target_box_index] = new_row_id (-1 if invalid)
 ROW_TRANSITIONS = np.full((14, 5), -1, dtype=np.int32)
 
@@ -65,11 +103,11 @@ for current_id in range(14):
     curr_idx, curr_count = get_row_details(current_id)
     
     for target_idx in range(5):
-        # Rule 1: Must move left to right
+        # DAG Constraint 1: Marks must strictly progress left-to-right
         if target_idx <= curr_idx:
             continue
             
-        # Rule 2: To mark the Lock box (index 4), must have >= 2 previous marks
+        # DAG Constraint 2: The final lock box requires a minimum of 2 prior marks
         if target_idx == 4 and curr_count < 2:
             continue
             
@@ -80,41 +118,41 @@ for current_id in range(14):
             
         ROW_TRANSITIONS[current_id][target_idx] = get_row_id(target_idx, new_count)
 
+
+# ==========================================
+# 3. GAME ENVIRONMENT LOGIC (The Transition Function T)
+# ==========================================
 class MiniQwixxEnv:
     
     @staticmethod
     def is_row_locked(p1_row_id, p2_row_id):
-        """Returns True if either player has reached the lock box (ID 11, 12, or 13)"""
+        """Returns True if either player has reached the terminal lock box (ID >= 11)."""
         return (p1_row_id >= 11) or (p2_row_id >= 11)
 
     @staticmethod
     def step(state_int, active_player, dice, a_w1, a_w2, a_c):
         """
-        Takes the current state, the dice roll, and the chosen actions.
-        Returns the new state integer and a boolean indicating if the game is over.
-        
-        Actions:
-        a_w1, a_w2: 'R', 'B', or None (White Phase)
-        a_c: 'R1', 'R2', 'B1', 'B2', or None (Color Phase for active player)
+        The formal Transition Function T(s, d, a_w, a_c) -> s'.
+        Processes the simultaneous White Phase and sequential Color Phase.
         """
         p1_r, p1_b, p1_p, p2_r, p2_b, p2_p = decode_state(state_int)
         
-        # Check if rows are currently locked
+        # Determine current lock status
         red_locked = MiniQwixxEnv.is_row_locked(p1_r, p2_r)
         blue_locked = MiniQwixxEnv.is_row_locked(p1_b, p2_b)
         
-        # Helper to map dice sum to box index
+        # Linear transformation mapping a dice sum to a 0-indexed array position
         def get_box_idx(color, dice_sum):
-            if color == 'R': return dice_sum - 2  # Red: 2->0, 3->1, 4->2, 5->3, 6->4
-            if color == 'B': return 6 - dice_sum  # Blue: 6->0, 5->1, 4->2, 3->3, 2->4
+            if color == 'R': return dice_sum - 2  # Ascending Red: 2->0, 3->1, 4->2, 5->3, 6->4
+            if color == 'B': return 6 - dice_sum  # Descending Blue: 6->0, 5->1, 4->2, 3->3, 2->4
             return -1
 
         # ------------------------------------------------
-        # 1. Resolve White Phase (Simultaneous)
+        # 1. Resolve White Phase (Simultaneous Decision)
         # ------------------------------------------------
         white_sum = dice['W1'] + dice['W2']
         
-        # Player 1 White Action
+        # Resolve Player 1 White Action
         p1_marked_white = False
         if a_w1 == 'R' and not red_locked:
             new_r = ROW_TRANSITIONS[p1_r][get_box_idx('R', white_sum)]
@@ -127,7 +165,7 @@ class MiniQwixxEnv:
                 p1_b = new_b
                 p1_marked_white = True
 
-        # Player 2 White Action
+        # Resolve Player 2 White Action
         p2_marked_white = False
         if a_w2 == 'R' and not red_locked:
             new_r = ROW_TRANSITIONS[p2_r][get_box_idx('R', white_sum)]
@@ -140,7 +178,7 @@ class MiniQwixxEnv:
                 p2_b = new_b
                 p2_marked_white = True
 
-        # Update Locks immediately in case someone locked a row in the white phase
+        # Re-evaluate lock constraints immediately after the White Phase
         red_locked = MiniQwixxEnv.is_row_locked(p1_r, p2_r)
         blue_locked = MiniQwixxEnv.is_row_locked(p1_b, p2_b)
 
@@ -178,15 +216,23 @@ class MiniQwixxEnv:
                         p2_b = new_b
                         active_marked_color = True
 
-        # Active player gets a penalty ONLY if they marked nothing in both phases
+        # ------------------------------------------------
+        # 3. Resolve Penalties
+        # ------------------------------------------------
+        # The Active Player receives an immutable penalty ONLY if they 
+        # failed to mark any box during BOTH the White and Color phases.
         if active_player == 1:
             if not p1_marked_white and not active_marked_color:
                 p1_p += 1
         else:
             if not p2_marked_white and not active_marked_color:
                 p2_p += 1
-                
-        # Re-check locks in case the color phase triggered one
+
+        # ------------------------------------------------
+        # 4. Check Terminal State (s ∈ S_terminal)
+        # ------------------------------------------------
+        # The game reaches a terminal absorbing state if either player accrues 
+        # 3 penalties, or if both color rows become locked.
         red_locked = MiniQwixxEnv.is_row_locked(p1_r, p2_r)
         blue_locked = MiniQwixxEnv.is_row_locked(p1_b, p2_b)
         

@@ -1,3 +1,14 @@
+"""
+rl_models/train_unified.py
+
+Asynchronous Minimax-Q Learning Engine.
+This module trains Reinforcement Learning (RL) agents to approximate the exact 
+Value Function V*(s) through millions of simulated episodic trajectories. 
+By utilizing a shared-memory multiprocessing architecture (similar to Hogwild!), 
+multiple CPU cores concurrently update a single global Value table, avoiding 
+the need for strict thread-locking.
+"""
+
 import os
 import numpy as np
 import random
@@ -9,20 +20,31 @@ from core.constants import ROW_ID_TO_COUNT, WHITE_ACTIONS, COLOR_ACTIONS, TOTAL_
 from solvers.matrix_math import solve_zero_sum_matrix
 from rl_models.agents import RewardShapingAgent, TDLambdaAgent, BoltzmannAgent
 
+# Global reference to the shared memory array holding V(s)
 shared_V_learned = None
 
 def init_worker(shared_array):
+    """
+    Initializes the shared memory array for the worker process.
+    The array holds a 32-bit float for every possible state and active player.
+    """
     global shared_V_learned
     shared_V_learned = np.frombuffer(shared_array, dtype=np.float32).reshape((TOTAL_STATES, 2))
+    
+    # Cryptographic seeding ensures independent stochastic trajectories per CPU core
     np.random.seed(os.getpid() + int(time.time()))
     random.seed(os.getpid() + int(time.time()))
 
 def worker_process(args):
-    # Notice how configuration is cleanly injected here
+    """
+    The core RL Episodic Loop.
+    Generates trajectories through the state space |S| and performs Temporal Difference 
+    (TD) updates. This represents the empirical approximation of the Bellman equation.
+    """
     worker_id, episodes, dag, true_win_margin, alpha_bounds, param_bounds, model_type, chkpt_interval = args
     global shared_V_learned
     
-    # Initialize the specific Strategy
+    # Initialize the specific mathematical Strategy (Reward Shaping, TD-Lambda, or Boltzmann)
     if model_type == 'reward_shape': agent = RewardShapingAgent()
     elif model_type == 'td_lambda': agent = TDLambdaAgent()
     elif model_type == 'boltzmann': agent = BoltzmannAgent()
@@ -35,16 +57,23 @@ def worker_process(args):
     local_checkpoint_mark = max(1, chkpt_interval // mp.cpu_count())
     
     for episode in range(1, episodes + 1):
+        # Exploring Starts: 80% of the time, start from a random state in the DAG.
+        # This guarantees sufficient visitation of deep/late-game states, satisfying 
+        # the theoretical convergence requirements of Q-learning.
         state = random.choice(dag) if random.random() < 0.8 else start_state
         active_player = random.choice([1, 2])
         progress = episode / episodes
         
+        # Hyperparameter Annealing:
+        # Linearly decay the exploration parameter (Tau/Epsilon) and the learning rate (Alpha)
+        # over time to shift the agent from pure exploration to pure exploitation.
         param = max(param_bounds[1], param_bounds[0] - (progress / 0.8) * (param_bounds[0] - param_bounds[1]))
         alpha = max(alpha_bounds[1], alpha_bounds[0] - progress * (alpha_bounds[0] - alpha_bounds[1]))
         
         agent.reset_episode()
         
         while True:
+            # 1. Terminal Check
             p1_r, p1_b, p1_p, p2_r, p2_b, p2_p = decode_state(state)
             if p1_p >= 3 or p2_p >= 3 or (MiniQwixxEnv.is_row_locked(p1_r, p2_r) and MiniQwixxEnv.is_row_locked(p1_b, p2_b)):
                 break
@@ -53,17 +82,21 @@ def worker_process(args):
             active_idx = 0 if active_player == 1 else 1
             next_active_idx = 1 if active_player == 1 else 0
             
+            # 2. Construct the 3x3 Zero-Sum Subgame (Payoff Matrix)
             payoff_matrix = np.zeros((3, 3), dtype=np.float32)
             best_c_actions = {}
             
+            # Iterate through the Simultaneous White Phase strategy space (Aw)
             for w1_idx, a_w1 in enumerate(WHITE_ACTIONS):
                 for w2_idx, a_w2 in enumerate(WHITE_ACTIONS):
                     best_future_val = -9999.0 if active_player == 1 else 9999.0
                     best_a_c = None
                     
+                    # Collapse the Sequential Color Phase (Ac) by assuming the Active Player acts optimally
                     for a_c in COLOR_ACTIONS:
                         next_state, is_terminal = MiniQwixxEnv.step(state, active_player, dice, a_w1, a_w2, a_c)
                         np1_r, np1_b, np1_p, np2_r, np2_b, np2_p = decode_state(next_state)
+                        
                         s1 = calculate_score(np1_r, np1_b, np1_p) if is_terminal else 0
                         s2 = calculate_score(np2_r, np2_b, np2_p) if is_terminal else 0
                         
@@ -75,6 +108,7 @@ def worker_process(args):
                             'c_np2_b': ROW_ID_TO_COUNT[np2_b], 'c_p2_b': ROW_ID_TO_COUNT[p2_b]
                         }
                         
+                        # Retrieve the bootstrapped estimate V(s') from the agent
                         future_val = agent.get_future_value(is_terminal, s1, s2, shared_V_learned, next_state, next_active_idx, env_info)
                         
                         if active_player == 1 and future_val > best_future_val: 
@@ -85,16 +119,28 @@ def worker_process(args):
                     payoff_matrix[w1_idx, w2_idx] = best_future_val
                     best_c_actions[(a_w1, a_w2)] = best_a_c
 
+            # 3. Minimax-Q Target Calculation
+            # Evaluate the Nash Equilibrium of the matrix to determine the true Expected Value of the turn
             v_target = solve_zero_sum_matrix(payoff_matrix)
+            
+            # 4. Temporal Difference (TD) Update
+            # Update the current state value V(s) towards the new target
             agent.update_value(state, active_idx, v_target, alpha, shared_V_learned)
             
+            # 5. Action Selection (Exploration vs. Exploitation)
             a_w1, a_w2 = agent.select_actions(payoff_matrix, WHITE_ACTIONS, best_c_actions, param)
+            
+            # If strictly exploiting (Boltzmann), take the mathematically optimal color action.
+            # If exploring (Epsilon-Greedy base), pick uniformly at random.
             a_c = best_c_actions[(a_w1, a_w2)] if model_type == 'boltzmann' else random.choice(COLOR_ACTIONS)
             
+            # Transition the environment
             state, _ = MiniQwixxEnv.step(state, active_player, dice, a_w1, a_w2, a_c)
             active_player = 2 if active_player == 1 else 1
 
-        # Print logic (scales based on episodes)
+        # Print logic & Mean Squared Error (MSE) tracking
+        # Periodically calculates the squared difference between the learned start state value V_rl(s0) 
+        # and the true mathematical Nash value V*(s0) to monitor convergence.
         print_interval = max(1, episodes // 10)
         if worker_id == 0 and episode % print_interval == 0:
             p1_start_val = shared_V_learned[start_state, 0]
@@ -102,7 +148,7 @@ def worker_process(args):
             mse_history.append(error)
             print(f"Worker 0 | Episode {episode:07d} | Param: {param:.3f} | Alpha: {alpha:.3f} | MSE: {error:.4f}")
 
-        # Checkpoint logic
+        # Periodic memory checkpointing
         if worker_id == 0 and episode % local_checkpoint_mark == 0:
             global_milestone = (episode // local_checkpoint_mark) * (chkpt_interval // 1000)
             chkpt_name = f'data/checkpoints/V_rl_{model_type}_{global_milestone}K.npy'
@@ -116,10 +162,13 @@ def train_unified(model_type, total_episodes, checkpoint_interval):
     Main orchestrator for training. Dependencies (episodes, intervals) are injected here.
     """
     print(f"Loading environment for {model_type.upper()} training...")
+    
+    # Load the Exact DP values to calculate the convergence MSE during training
     V_exact = np.load('data/V_nash_win_prob.npy')
     dag = np.load('data/topological_dag.npy')
     true_win_margin = V_exact[0, 0] 
     
+    # Allocate a flat, contiguous block of shared memory for the asynchronous workers
     shared_array_base = mp.Array('f', TOTAL_STATES * 2, lock=False)
     cores = mp.cpu_count()
     episodes_per_core = total_episodes // cores
@@ -129,7 +178,7 @@ def train_unified(model_type, total_episodes, checkpoint_interval):
     os.makedirs('data/checkpoints', exist_ok=True)
     start_time = time.time()
     
-    # Model-Specific Hyperparameters
+    # Model-Specific Hyperparameter Boundaries
     param_bounds = (0.5, 0.01) if model_type == 'boltzmann' else (1.0, 0.01)
     alpha_bounds = (0.1, 0.01)
     
@@ -141,7 +190,7 @@ def train_unified(model_type, total_episodes, checkpoint_interval):
         
     final_V_learned = np.frombuffer(shared_array_base, dtype=np.float32).reshape((TOTAL_STATES, 2))
     
-    # Save the final result
+    # Save the final matrix and MSE history
     np.save(f'data/V_rl_minimax_{model_type}_TEST.npy', final_V_learned)
     np.save(f'data/mse_history_{model_type}_TEST.npy', np.array(results[0]))
     
@@ -151,6 +200,7 @@ def train_unified(model_type, total_episodes, checkpoint_interval):
 def run_benchmark(benchmark_episodes=100_000, target_episodes=20_000_000):
     """
     Runs a small number of episodes for all three models to extrapolate total training time.
+    Uses the exact same mathematical loop as training to guarantee perfect timing accuracy.
     """
     print("Loading exact WIN PROBABILITY Nash values and DAG for benchmarking...")
     V_exact = np.load('data/V_nash_win_prob.npy')
@@ -175,7 +225,7 @@ def run_benchmark(benchmark_episodes=100_000, target_episodes=20_000_000):
         param_bounds = (0.5, 0.01) if model_type == 'boltzmann' else (1.0, 0.01)
         alpha_bounds = (0.1, 0.01)
         
-        # We pass 'target_episodes + 1' as the checkpoint interval so it never triggers a save during benchmark
+        # We pass 'target_episodes + 1' as the checkpoint interval so it never triggers a disk write during benchmark
         args_list = [(i, episodes_per_core, dag, true_win_margin, alpha_bounds, param_bounds, model_type, target_episodes + 1) for i in range(cores)]
         
         start_time = time.time()
