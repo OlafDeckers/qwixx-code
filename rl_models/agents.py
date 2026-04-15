@@ -10,6 +10,7 @@ Minimax-Q training loop.
 
 import numpy as np
 import random
+from solvers.matrix_math import get_nash_probs
 
 class BaseAgent:
     """
@@ -43,11 +44,24 @@ class BaseAgent:
 
     def select_actions(self, payoff_matrix, white_actions, best_c_actions, param_val):
         """
-        Standard Epsilon-Greedy fallback for action selection.
-        (Note: The pure greedy path is handled inside the training loop; this 
-        function specifically returns the exploratory random uniform actions).
+        Standard Epsilon-Greedy action selection.
+        param_val represents Epsilon.
+        Returns the actions and a boolean flag indicating if an exploratory move was made.
         """
-        return random.choice(white_actions), random.choice(white_actions)
+        epsilon = param_val
+        
+        # EXPLORE: Pick completely random actions
+        if random.random() < epsilon:
+            return random.choice(white_actions), random.choice(white_actions), True
+            
+        # EXPLOIT: Find the Nash Equilibrium mixed strategy
+        p1_probs, p2_probs = get_nash_probs(payoff_matrix)
+        
+        # Sample an action based on the optimal Nash distribution
+        a_w1 = np.random.choice(white_actions, p=p1_probs)
+        a_w2 = np.random.choice(white_actions, p=p2_probs)
+        
+        return a_w1, a_w2, False
 
 
 class RewardShapingAgent(BaseAgent):
@@ -68,14 +82,15 @@ class RewardShapingAgent(BaseAgent):
         step_reward = 0.0
         
         # Heuristic 1: Penalties are highly detrimental to win probability.
-        # Apply a +/- 0.05 value shift if a penalty was taken this turn.
-        if active_player == 1 and np1_p > p1_p: step_reward -= 0.05
-        elif active_player == 2 and np2_p > p2_p: step_reward += 0.05 
+        # Only the active player can take a penalty, but we evaluate it symmetrically.
+        if np1_p > p1_p: step_reward -= 0.05
+        if np2_p > p2_p: step_reward += 0.05 
         
         # Heuristic 2: Marking boxes generally correlates with higher scores.
-        # Apply a +/- 0.01 micro-reward if a successful cross was made this turn.
-        if active_player == 1 and (c_np1_r > c_p1_r or c_np1_b > c_p1_b): step_reward += 0.01
-        elif active_player == 2 and (c_np2_r > c_p2_r or c_np2_b > c_p2_b): step_reward -= 0.01
+        # BOTH players can cross boxes simultaneously in the White Phase.
+        # P1's crosses are objectively good (+0.01), P2's crosses are objectively bad (-0.01)
+        if c_np1_r > c_p1_r or c_np1_b > c_p1_b: step_reward += 0.01
+        if c_np2_r > c_p2_r or c_np2_b > c_p2_b: step_reward -= 0.01
         
         # The expected value becomes: Immediate Heuristic Reward + Discounted Future Value
         return step_reward + float(shared_V[next_state, next_idx])
@@ -95,7 +110,8 @@ class TDLambdaAgent(BaseAgent):
         self.eligibility_traces = {}
 
     def reset_episode(self):
-        """Clears the trajectory memory vector e(s) at the start of a new Markov episode."""
+        """Clears the trajectory memory vector e(s) at the start of a new Markov episode, 
+        or when an off-policy exploratory move is taken to prevent trace bleed."""
         self.eligibility_traces = {}
 
     def update_value(self, state, active_idx, v_target, alpha, shared_V):
@@ -139,8 +155,7 @@ class BoltzmannAgent(BaseAgent):
         # Evaluate P1's pure actions assuming P2 plays optimally against them
         p1_vals = np.min(payoff_matrix, axis=1)
         
-        # Numerically Stable Softmax: Subtracting the maximum value prevents 
-        # floating-point overflow during exponentiation (e^x).
+        # Numerically Stable Softmax: Subtracting the maximum value prevents floating-point overflow
         p1_exp = np.exp((p1_vals - np.max(p1_vals)) / tau) 
         p1_probs = p1_exp / np.sum(p1_exp)
         
@@ -155,4 +170,6 @@ class BoltzmannAgent(BaseAgent):
         a_w1 = np.random.choice(white_actions, p=p1_probs)
         a_w2 = np.random.choice(white_actions, p=p2_probs)
         
-        return a_w1, a_w2
+        # Return False for is_exploring to prevent unnecessary trace wipes 
+        # (Though Boltzmann doesn't use traces anyway, this matches the unpack signature)
+        return a_w1, a_w2, False

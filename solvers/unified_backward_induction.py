@@ -218,14 +218,15 @@ def solve_score_diff(state_int):
         shared_V[state_int, 0 if active_player == 1 else 1, 1] = expected_s2
 
 # ==========================================
-# 4. SOLO OPTIMIZATION SOLVER (Thesis Eq 9-12)
+# 4. SOLO OPTIMIZATION SOLVER (Thesis Eq 9-13)
 # ==========================================
 def solve_solo(state_int):
     """
     Evaluates V_solo(s).
-    Mathematically reduces the Markov Game to a single-agent Markov Decision Process (MDP).
-    Both players strictly maximize their own points, completely ignoring the zero-sum 
-    nature of the opponent's strategy space. Serves as the optimal baseline for Social Welfare.
+    Mathematically reduces the Markov Game to two independent, single-agent 
+    Markov Decision Processes (MDPs). Both players strictly maximize their own points, 
+    completely ignoring the zero-sum nature of the opponent's strategy space. 
+    Serves as the optimal baseline for Social Welfare.
     """
     global shared_V
     p1_r, p1_b, p1_p, p2_r, p2_b, p2_p = decode_state(state_int)
@@ -267,11 +268,12 @@ def solve_solo(state_int):
                     p2_matrix[w1_idx, w2_idx] = best_vals_pair[1]
             
             # Thesis Eq 11 & 12: Solo players ignore the matrix equilibrium entirely.
-            # They take the argument maximum (argmax) of their own expected row/col means, 
-            # modeling the game as a multiplayer solitaire environment.
+            # They treat the opponent as uniform environmental noise, taking the argmax 
+            # of their own expected row/col means (equivalent to the 1/|Aw| fraction).
             best_w1_idx = np.argmax(np.mean(p1_matrix, axis=1))
             best_w2_idx = np.argmax(np.mean(p2_matrix, axis=0))
             
+            # Thesis Eq 13: The deterministic intersection of these independent choices.
             expected_score1 += dice['prob'] * p1_matrix[best_w1_idx, best_w2_idx]
             expected_score2 += dice['prob'] * p2_matrix[best_w1_idx, best_w2_idx]
             

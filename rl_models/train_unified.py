@@ -58,15 +58,12 @@ def worker_process(args):
     
     for episode in range(1, episodes + 1):
         # Exploring Starts: 80% of the time, start from a random state in the DAG.
-        # This guarantees sufficient visitation of deep/late-game states, satisfying 
-        # the theoretical convergence requirements of Q-learning.
+        # This guarantees sufficient visitation of deep/late-game states.
         state = random.choice(dag) if random.random() < 0.8 else start_state
         active_player = random.choice([1, 2])
         progress = episode / episodes
         
         # Hyperparameter Annealing:
-        # Linearly decay the exploration parameter (Tau/Epsilon) and the learning rate (Alpha)
-        # over time to shift the agent from pure exploration to pure exploitation.
         param = max(param_bounds[1], param_bounds[0] - (progress / 0.8) * (param_bounds[0] - param_bounds[1]))
         alpha = max(alpha_bounds[1], alpha_bounds[0] - progress * (alpha_bounds[0] - alpha_bounds[1]))
         
@@ -86,13 +83,11 @@ def worker_process(args):
             payoff_matrix = np.zeros((3, 3), dtype=np.float32)
             best_c_actions = {}
             
-            # Iterate through the Simultaneous White Phase strategy space (Aw)
             for w1_idx, a_w1 in enumerate(WHITE_ACTIONS):
                 for w2_idx, a_w2 in enumerate(WHITE_ACTIONS):
                     best_future_val = -9999.0 if active_player == 1 else 9999.0
                     best_a_c = None
                     
-                    # Collapse the Sequential Color Phase (Ac) by assuming the Active Player acts optimally
                     for a_c in COLOR_ACTIONS:
                         next_state, is_terminal = MiniQwixxEnv.step(state, active_player, dice, a_w1, a_w2, a_c)
                         np1_r, np1_b, np1_p, np2_r, np2_b, np2_p = decode_state(next_state)
@@ -120,27 +115,27 @@ def worker_process(args):
                     best_c_actions[(a_w1, a_w2)] = best_a_c
 
             # 3. Minimax-Q Target Calculation
-            # Evaluate the Nash Equilibrium of the matrix to determine the true Expected Value of the turn
             v_target = solve_zero_sum_matrix(payoff_matrix)
             
             # 4. Temporal Difference (TD) Update
-            # Update the current state value V(s) towards the new target
             agent.update_value(state, active_idx, v_target, alpha, shared_V_learned)
             
             # 5. Action Selection (Exploration vs. Exploitation)
-            a_w1, a_w2 = agent.select_actions(payoff_matrix, WHITE_ACTIONS, best_c_actions, param)
+            a_w1, a_w2, is_exploring = agent.select_actions(payoff_matrix, WHITE_ACTIONS, best_c_actions, param)
             
-            # If strictly exploiting (Boltzmann), take the mathematically optimal color action.
-            # If exploring (Epsilon-Greedy base), pick uniformly at random.
-            a_c = best_c_actions[(a_w1, a_w2)] if model_type == 'boltzmann' else random.choice(COLOR_ACTIONS)
+            # 6. Wipes traces if a random move is taken to prevent corruption
+            if is_exploring:
+                agent.reset_episode()
             
-            # Transition the environment
+            # 7. Fair Behavior Policy Check
+            # All models strictly exploit in the sequential Color Phase for fair comparisons.
+            a_c = best_c_actions[(a_w1, a_w2)]
+            
+            # 8. Transition the environment
             state, _ = MiniQwixxEnv.step(state, active_player, dice, a_w1, a_w2, a_c)
             active_player = 2 if active_player == 1 else 1
 
         # Print logic & Mean Squared Error (MSE) tracking
-        # Periodically calculates the squared difference between the learned start state value V_rl(s0) 
-        # and the true mathematical Nash value V*(s0) to monitor convergence.
         print_interval = max(1, episodes // 10)
         if worker_id == 0 and episode % print_interval == 0:
             p1_start_val = shared_V_learned[start_state, 0]
@@ -247,10 +242,10 @@ if __name__ == '__main__':
     # ==========================================
     
     # Modes: 'BENCHMARK', 'TEST', or 'PRODUCTION'
-    RUN_MODE = 'BENCHMARK'  
+    RUN_MODE = 'PRODUCTION' # Options: 'BENCHMARK', 'TEST', 'PRODUCTION'
     
     # Choose your model (Only applies to TEST or PRODUCTION modes)
-    TARGET_MODEL = 'boltzmann' # Options: 'boltzmann', 'td_lambda', 'reward_shape'
+    TARGET_MODEL = 'reward_shape' # Options: 'boltzmann', 'td_lambda', 'reward_shape'
     
     if RUN_MODE == 'BENCHMARK':
         run_benchmark(benchmark_episodes=500_000, target_episodes=20_000_000)
