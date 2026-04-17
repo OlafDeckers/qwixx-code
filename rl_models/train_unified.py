@@ -18,7 +18,7 @@ from core.state_encoder import decode_state
 from core.environment import MiniQwixxEnv, calculate_score, roll_dice
 from core.constants import ROW_ID_TO_COUNT, WHITE_ACTIONS, COLOR_ACTIONS, TOTAL_STATES
 from solvers.matrix_math import solve_zero_sum_matrix
-from rl_models.agents import RewardShapingAgent, TDLambdaAgent, BoltzmannAgent
+from rl_models.agents import RewardShapingAgent, TDLambdaAgent, BoltzmannAgent, StandardAgent
 
 # Global reference to the shared memory array holding V(s)
 shared_V_learned = None
@@ -44,10 +44,11 @@ def worker_process(args):
     worker_id, episodes, dag, true_win_margin, alpha_bounds, param_bounds, model_type, chkpt_interval = args
     global shared_V_learned
     
-    # Initialize the specific mathematical Strategy (Reward Shaping, TD-Lambda, or Boltzmann)
+    # Initialize the specific mathematical Strategy
     if model_type == 'reward_shape': agent = RewardShapingAgent()
     elif model_type == 'td_lambda': agent = TDLambdaAgent()
     elif model_type == 'boltzmann': agent = BoltzmannAgent()
+    elif model_type == 'standard': agent = StandardAgent()
     else: raise ValueError("Unknown model_type")
     
     start_state = 0
@@ -211,7 +212,7 @@ def run_benchmark(benchmark_episodes=100_000, target_episodes=20_000_000):
     print(f" Running {benchmark_episodes:,} episodes per model and extrapolating x{int(multiplier)}")
     print(f"===========================================================\n")
 
-    models = ['reward_shape', 'td_lambda', 'boltzmann']
+    models = ['standard', 'reward_shape', 'td_lambda', 'boltzmann']
     
     for model_type in models:
         print(f"Benchmarking [{model_type.upper()}]...")
@@ -245,7 +246,7 @@ if __name__ == '__main__':
     RUN_MODE = 'PRODUCTION' # Options: 'BENCHMARK', 'TEST', 'PRODUCTION'
     
     # Choose your model (Only applies to TEST or PRODUCTION modes)
-    TARGET_MODEL = 'reward_shape' # Options: 'boltzmann', 'td_lambda', 'reward_shape'
+    TARGET_MODEL = 'standard' # Options: 'boltzmann', 'td_lambda', 'reward_shape' , 'standard'
     
     if RUN_MODE == 'BENCHMARK':
         run_benchmark(benchmark_episodes=500_000, target_episodes=20_000_000)

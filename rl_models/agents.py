@@ -62,6 +62,14 @@ class BaseAgent:
         a_w2 = np.random.choice(white_actions, p=p2_probs)
         
         return a_w1, a_w2, False
+    
+class StandardAgent(BaseAgent):
+    """
+    The unenhanced baseline Minimax-Q agent.
+    Uses standard TD(0) updates with strictly terminal rewards and 
+    epsilon-greedy exploration. Expected to struggle with sparse rewards.
+    """
+    pass # Inherits get_future_value, update_value, and select_actions directly from BaseAgent
 
 
 class RewardShapingAgent(BaseAgent):
