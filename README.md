@@ -21,11 +21,11 @@ Qwixx is traditionally played as a parallel solitaire optimization problem. This
    pip install -r requirements.txt
 
 Usage GuideThe project is modular. Scripts should be run from the root directory using the -m flag.
-1. Compute Exact Game ValuesTo solve the DAG and generate the baseline Dynamic Programming values for all objective functions: Bash python -m solvers.unified_backward_induction
-2. Run Strategy TournamentsTo simulate the 100,000-game round-robin tournament between DP agents: Bash python -m analysis.simulate_round_robin
-3. Calculate Price of Anarchy (PoA)To evaluate the systemic cost of adversarial play and compute Social Welfare: Bash python -m analysis.calculate_spectrum_poa
-4. Train Reinforcement Learning AgentsTo train the model-free RL architectures over 20 million episodes: Bash python -m rl_models.train_unified
-5. Generate VisualizationsTo plot the RL convergence or generate tournament heatmaps: Bash python -m analysis.plot_model_comparison
+1. Compute Exact Game Values to solve the DAG and generate the baseline Dynamic Programming values for all objective functions: Bash python -m solvers.unified_backward_induction
+2. Run Strategy Tournaments to simulate the 100,000-game round-robin tournament between DP agents: Bash python -m analysis.simulate_round_robin
+3. Calculate Price of Anarchy (PoA) to evaluate the systemic cost of adversarial play and compute Social Welfare: Bash python -m analysis.calculate_spectrum_poa
+4. Train Reinforcement Learning Agents to train the model-free RL architectures over 20 million episodes: Bash python -m rl_models.train_unified
+5. Generate Visualizations to plot the RL convergence or generate tournament heatmaps: Bash python -m analysis.plot_model_comparison
 
 ## Key Findings
 1. DAG Topology defeats Sparse Rewards: A standard 1-step TD(0) agent successfully rediscovers optimal zero-sum policies without complex credit assignment due to the environment's strictly forward-moving 
