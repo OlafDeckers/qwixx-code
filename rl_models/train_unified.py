@@ -243,7 +243,7 @@ if __name__ == '__main__':
     # ==========================================
     
     # Modes: 'BENCHMARK', 'TEST', or 'PRODUCTION'
-    RUN_MODE = 'PRODUCTION' # Options: 'BENCHMARK', 'TEST', 'PRODUCTION'
+    RUN_MODE = 'BENCHMARK' # Options: 'BENCHMARK', 'TEST', 'PRODUCTION'
     
     # Choose your model (Only applies to TEST or PRODUCTION modes)
     TARGET_MODEL = 'standard' # Options: 'boltzmann', 'td_lambda', 'reward_shape' , 'standard'

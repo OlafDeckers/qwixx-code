@@ -25,13 +25,13 @@ def generate_comparison_plot():
     
     # Define the RL methodologies evaluated in the thesis, including the new baseline.
     models = {
-        # The unenhanced baseline (Standard Minimax-Q with Epsilon-Greedy, terminal rewards only)
+        # Equation 17:The unenhanced baseline (Standard Minimax-Q with Epsilon-Greedy, terminal rewards only)
         'Standard Baseline': {'prefix': 'V_rl_standard_', 'color': '#8E44AD', 'marker': 'd'},
-        # Equation 15: Modifies the MDP reward structure with domain-specific heuristics
+        # Equation 18: Modifies the MDP reward structure with domain-specific heuristics
         'Reward Shaping': {'prefix': 'V_rl_reward_shape_', 'color': '#4A90E2', 'marker': 'o'},
-        # Equations 17-21: Uses replacing eligibility traces to backpropagate rewards across trajectories
+        # Equations 19-22: Uses replacing eligibility traces to backpropagate rewards across trajectories
         'TD-Lambda': {'prefix': 'V_rl_td_lambda_', 'color': '#D0021B', 'marker': 's'},
-        # Equation 22: Softmax action selection over the Q-values to balance exploration/exploitation
+        # Equation 23: Softmax action selection over the Q-values to balance exploration/exploitation
         'Boltzmann': {'prefix': 'V_rl_boltzmann_', 'color': '#F5A623', 'marker': '^'}
     }
     

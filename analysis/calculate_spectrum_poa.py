@@ -30,7 +30,7 @@ def calculate_spectrum_poa():
         # Nash equilibrium probabilities calculated during backward induction.
         stats = TournamentEngine.run_nash_matchup(agent, agent, games_per_agent)
         
-        # Thesis Reference: Equation 13 -> W(s) = Score_1(s) + Score_2(s)
+        # Thesis Reference: Equation 14 -> W(s) = Score_1(s) + Score_2(s)
         # We average the sum of both players' points over all simulated games 
         # to find the Expected Social Welfare.
         results_welfare[agent] = stats['total_welfare'] / games_per_agent
@@ -53,7 +53,7 @@ def calculate_spectrum_poa():
     for agent in ['SCORE', 'HYBRID_5', 'HYBRID_10', 'HYBRID_25', 'HYBRID_50', 'WIN']:
         w_nash = results_welfare[agent]
         
-        # Thesis Reference: Equation 14 -> PoA = W_solo / W_nash
+        # Thesis Reference: Equation 15 -> PoA = W_solo / W_nash
         # A PoA of 1.0 means perfectly efficient. > 1.0 indicates value destroyed by defensive play.
         poa = w_opt / w_nash
         

@@ -74,7 +74,7 @@ class StandardAgent(BaseAgent):
 
 class RewardShapingAgent(BaseAgent):
     """
-    Implements Heuristic Reward Shaping (Thesis Equation 15).
+    Implements Heuristic Reward Shaping (Thesis Equation 18).
     Standard Qwixx has a highly sparse reward structure (rewards only occur at 
     terminal states). This agent modifies the MDP by injecting dense heuristic 
     rewards into the intermediate state transitions to guide the gradient.
@@ -107,7 +107,7 @@ class RewardShapingAgent(BaseAgent):
 class TDLambdaAgent(BaseAgent):
     """
     Implements Minimax-TD(lambda) with Replacing Eligibility Traces.
-    (Thesis Equations 17-21).
+    (Thesis Equations 19-22).
     Instead of only updating the immediately preceding state, this agent 
     propagates the Temporal Difference error (delta) backwards through the 
     entire episodic trajectory, exponentially decaying by lambda.
@@ -144,7 +144,7 @@ class TDLambdaAgent(BaseAgent):
 
 class BoltzmannAgent(BaseAgent):
     """
-    Implements Softmax / Boltzmann Action Selection (Thesis Equation 22).
+    Implements Softmax / Boltzmann Action Selection (Thesis Equation 23).
     Instead of rigidly taking the argmax (greedy), this agent samples actions 
     from a Gibbs distribution parameterized by Temperature (tau).
     This ensures all actions have a non-zero probability of being explored, 
