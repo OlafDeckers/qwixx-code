@@ -6,10 +6,16 @@ This module provides a bijective mapping between the formal state tuple s ∈ S
 (defined in Equation 1) and a unique integer index. This O(1) mapping is 
 computationally necessary to perform array-based value iteration and exact 
 Nash equilibrium lookups across millions of episodes.
+
+It utilizes Numba Just-In-Time (JIT) compilation to transform the bitwise 
+mathematical operations into native C machine code, stripping away 
+Python's standard function-call overhead.
 """
 
 import numpy as np
+from numba import njit
 
+@njit(nogil=True)
 def encode_state(p1_r, p1_b, p1_p, p2_r, p2_b, p2_p):
     """
     Thesis Reference: Equation 1 -> s = (r_1, b_1, p_1, r_2, b_2, p_2)
@@ -27,7 +33,7 @@ def encode_state(p1_r, p1_b, p1_p, p2_r, p2_b, p2_p):
            (p2_b << 14) | \
            (p2_p << 18)
 
-
+@njit(nogil=True)
 def decode_state(state_int):
     """
     Inverse mapping: Reconstructs the formal state tuple s from its integer index.

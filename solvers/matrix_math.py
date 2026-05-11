@@ -8,124 +8,93 @@ a standard Linear Programming (LP) solver for every node is computationally
 intractable. 
 
 This solver uses a cascading sequence of exact mathematical shortcuts 
-to find the Minimax value and Mixed Strategy probabilities in microseconds, 
-only falling back to SciPy's Simplex/Interior-Point methods when absolutely necessary.
+to find the Minimax value and Mixed Strategy probabilities in microseconds.
+[Computational Upgrade: Completely refactored with Numba JIT and analytical 
+ 3x3 algebraic fallbacks to bypass SciPy's LP overhead entirely.]
 
 Thesis Reference: Equation 8 (The Minimax theorem applied to the White Phase).
 """
 
 import numpy as np
-from scipy.optimize import linprog
+from numba import njit
 
-def solve_zero_sum_matrix(A):
-    """
-    Computes the Value of the Game (v*) for a given payoff matrix A.
-    Used extensively by the RL agents to find the Temporal Difference target.
-    """
-    # 1. Pure Strategy Saddle Point Check
-    # A saddle point exists if Maximin == Minimax: max_i(min_j(A)) == min_j(max_i(A))
-    # If true, the game is deterministic and no mixed strategy is required.
-    row_mins = np.min(A, axis=1)
-    col_maxs = np.max(A, axis=0)
-    if np.max(row_mins) == np.min(col_maxs):
-        return float(np.max(row_mins))
-
-    # 2. Iterated Elimination of Strictly Dominated Strategies (IESDS)
-    # Rational players will never play a strategy that yields a strictly worse 
-    # outcome than another available strategy, regardless of the opponent's choice.
-    rows, cols = A.shape
-    valid_rows = list(range(rows))
-    valid_cols = list(range(cols))
-
-    # Player 1 (Maximizer) eliminates rows strictly dominated by other rows
-    for i in range(rows):
-        for j in range(rows):
-            if i != j and i in valid_rows and j in valid_rows:
-                if np.all(A[i, valid_cols] <= A[j, valid_cols]):
-                    valid_rows.remove(i)
-                    break
-
-    # Player 2 (Minimizer) eliminates columns strictly dominated by other columns
-    for i in range(cols):
-        for j in range(cols):
-            if i != j and i in valid_cols and j in valid_cols:
-                if np.all(A[valid_rows, i] >= A[valid_rows, j]):
-                    valid_cols.remove(i)
-                    break
-
-    A_sub = A[np.ix_(valid_rows, valid_cols)]
-
-    # Re-check for a saddle point on the reduced submatrix
-    if np.max(np.min(A_sub, axis=1)) == np.min(np.max(A_sub, axis=0)):
-        return float(np.max(np.min(A_sub, axis=1)))
-
-    # 3. Explicit 2x2 Algebraic Formula
-    # If the game reduces to a 2x2 mixed strategy, we can solve for the exact 
-    # expected value algebraically using determinants, bypassing LP entirely.
-    if A_sub.shape == (2, 2):
-        a, b = A_sub[0,0], A_sub[0,1]
-        c, d = A_sub[1,0], A_sub[1,1]
-        det = a - b - c + d
-        if det != 0:
-            v = (a*d - b*c) / det
-            return float(v)
-
-    # 4. Linear Programming Fallback (SciPy)
-    # Triggered ONLY if the matrix is an irreducible 3x3 "Rock-Paper-Scissors" style game.
-    # Formulates the primal LP: min v, subject to A^T * p1 >= v * 1, sum(p1) = 1
-    c_obj = np.zeros(A_sub.shape[0] + 1)
-    c_obj[0] = -1
-    A_ub = np.zeros((A_sub.shape[1], A_sub.shape[0] + 1))
-    A_ub[:, 0] = 1
-    A_ub[:, 1:] = -A_sub.T
-    b_ub = np.zeros(A_sub.shape[1])
-    A_eq = np.zeros((1, A_sub.shape[0] + 1))
-    A_eq[0, 1:] = 1
-    b_eq = np.array([1.0])
-    bounds = [(None, None)] + [(0, 1) for _ in range(A_sub.shape[0])]
-
-    res = linprog(c_obj, A_ub=A_ub, b_ub=b_ub, A_eq=A_eq, b_eq=b_eq, bounds=bounds, method='highs')
-    if res.success:
-        return float(res.x[0])
-        
-    # Absolute fallback (mathematically rare in proper game definitions)
-    return float(np.mean(A_sub))
-
+@njit(nogil=True)
 def get_nash_probs(A):
     """
     Computes the optimal Mixed Strategy probabilities p1* and p2* in \Delta.
     Used by Backward Induction to weight the expected point outcomes, and by 
     the Analysis Evaluator to sample empirical tournament moves.
     """
-    # 1. Fast Saddle Point Check (Pure Strategies)
-    row_mins = np.min(A, axis=1)
-    col_maxs = np.max(A, axis=0)
+    rows = A.shape[0]
+    cols = A.shape[1]
     
-    if np.max(row_mins) == np.min(col_maxs):
-        p1 = np.zeros(A.shape[0]); p1[np.argmax(row_mins)] = 1.0
-        p2 = np.zeros(A.shape[1]); p2[np.argmin(col_maxs)] = 1.0
+    # 1. Fast Saddle Point Check (Pure Strategies)
+    row_mins = np.zeros(rows)
+    for i in range(rows):
+        row_mins[i] = np.min(A[i, :])
+    col_maxs = np.zeros(cols)
+    for j in range(cols):
+        col_maxs[j] = np.max(A[:, j])
+        
+    max_row_min = np.max(row_mins)
+    min_col_max = np.min(col_maxs)
+    
+    if max_row_min == min_col_max:
+        p1 = np.zeros(rows)
+        p1[np.argmax(row_mins)] = 1.0
+        p2 = np.zeros(cols)
+        p2[np.argmin(col_maxs)] = 1.0
         return p1, p2
 
     # 2. Iterated Elimination of Strictly Dominated Strategies (IESDS)
-    rows, cols = A.shape
-    v_rows, v_cols = list(range(rows)), list(range(cols))
+    # Refactored for Numba using high-speed boolean masking
+    v_rows = np.ones(rows, dtype=np.bool_)
+    v_cols = np.ones(cols, dtype=np.bool_)
     
-    for i in range(rows):
-        for j in range(rows):
-            if i != j and i in v_rows and j in v_rows and np.all(A[i, v_cols] <= A[j, v_cols]):
-                v_rows.remove(i); break
-    for i in range(cols):
-        for j in range(cols):
-            if i != j and i in v_cols and j in v_cols and np.all(A[v_rows, i] >= A[v_rows, j]):
-                v_cols.remove(i); break
+    changed = True
+    while changed:
+        changed = False
+        for i in range(rows):
+            if not v_rows[i]: continue
+            for j in range(rows):
+                if i == j or not v_rows[j]: continue
+                dominated = True
+                for c in range(cols):
+                    if v_cols[c] and A[i, c] >= A[j, c]:
+                        dominated = False
+                        break
+                if dominated:
+                    v_rows[i] = False
+                    changed = True
+                    break
+        
+        for i in range(cols):
+            if not v_cols[i]: continue
+            for j in range(cols):
+                if i == j or not v_cols[j]: continue
+                dominated = True
+                for r in range(rows):
+                    if v_rows[r] and A[r, i] <= A[r, j]:
+                        dominated = False
+                        break
+                if dominated:
+                    v_cols[i] = False
+                    changed = True
+                    break
 
-    A_sub = A[np.ix_(v_rows, v_cols)]
-    
+    n_r = np.sum(v_rows)
+    n_c = np.sum(v_cols)
+
     # 3. Explicit 2x2 Algebraic Formula for Mixed Probabilities
     # p1 = (d - c) / (a - b - c + d)
-    if A_sub.shape == (2, 2):
-        a, b = A_sub[0,0], A_sub[0,1]
-        c, d = A_sub[1,0], A_sub[1,1]
+    if n_r == 2 and n_c == 2:
+        r_idx = np.where(v_rows)[0]
+        c_idx = np.where(v_cols)[0]
+        a = A[r_idx[0], c_idx[0]]
+        b = A[r_idx[0], c_idx[1]]
+        c = A[r_idx[1], c_idx[0]]
+        d = A[r_idx[1], c_idx[1]]
+        
         det = a - b - c + d
         if det != 0:
             p1_prob = (d - c) / det
@@ -133,32 +102,93 @@ def get_nash_probs(A):
             
             # Ensure probabilities are mathematically valid bounds [0, 1]
             if 0 <= p1_prob <= 1 and 0 <= p2_prob <= 1:
-                p1_sub = np.array([p1_prob, 1 - p1_prob])
-                p2_sub = np.array([p2_prob, 1 - p2_prob])
-                
-                p1 = np.zeros(rows); p1[v_rows] = p1_sub
-                p2 = np.zeros(cols); p2[v_cols] = p2_sub
+                p1 = np.zeros(rows)
+                p2 = np.zeros(cols)
+                p1[r_idx[0]] = p1_prob
+                p1[r_idx[1]] = 1.0 - p1_prob
+                p2[c_idx[0]] = p2_prob
+                p2[c_idx[1]] = 1.0 - p2_prob
                 return p1, p2
 
-    # 4. Linear Programming Fallback (SciPy) for irreducible 3x3 matrices
-    
-    # Primal LP to find Player 1's mixed strategy probabilities (p1*)
-    c1 = np.zeros(A_sub.shape[0] + 1); c1[0] = -1
-    A_ub1 = np.zeros((A_sub.shape[1], A_sub.shape[0] + 1)); A_ub1[:, 0] = 1; A_ub1[:, 1:] = -A_sub.T
-    res1 = linprog(c1, A_ub=A_ub1, b_ub=np.zeros(A_sub.shape[1]), A_eq=np.array([[0] + [1]*A_sub.shape[0]]), b_eq=np.array([1.0]), bounds=[(None, None)] + [(0, 1)]*A_sub.shape[0], method='highs')
-    p1_sub = res1.x[1:] if res1.success else np.full(A_sub.shape[0], 1.0/A_sub.shape[0])
+    # 4. Fallback: Analytical 3x3 Full Support (Bypassing Linear Programming entirely)
+    if n_r == 3 and n_c == 3:
+        # Shift A to strictly positive to natively avoid singular division errors
+        shift = np.min(A) - 1.0
+        A_pos = A - shift
+        
+        try:
+            x = np.linalg.solve(A_pos.T, np.ones(3))
+            y = np.linalg.solve(A_pos, np.ones(3))
+            
+            if np.all(x > -1e-9) and np.all(y > -1e-9):
+                p1 = x / np.sum(x)
+                p2 = y / np.sum(y)
+                return np.clip(p1, 0, 1), np.clip(p2, 0, 1)
+        except:
+            pass # Fails safely if matrix is singular
 
-    # Dual LP to find Player 2's mixed strategy probabilities (p2*)
-    # Player 2 wants to minimize the value, subject to A * p2 <= v * 1
-    c2 = np.zeros(A_sub.shape[1] + 1); c2[0] = 1
-    A_ub2 = np.zeros((A_sub.shape[0], A_sub.shape[1] + 1)); A_ub2[:, 0] = -1; A_ub2[:, 1:] = A_sub
-    res2 = linprog(c2, A_ub=A_ub2, b_ub=np.zeros(A_sub.shape[0]), A_eq=np.array([[0] + [1]*A_sub.shape[1]]), b_eq=np.array([1.0]), bounds=[(None, None)] + [(0, 1)]*A_sub.shape[1], method='highs')
-    p2_sub = res2.x[1:] if res2.success else np.full(A_sub.shape[1], 1.0/A_sub.shape[1])
+    # 5. Final Fallback: Check all 2x2 subgames natively
+    # Handles irreducible 3x3 matrices where the Nash Equilibrium is a 2x2 support
+    r_act = np.where(v_rows)[0]
+    c_act = np.where(v_cols)[0]
+    for r1 in range(n_r):
+        for r2 in range(r1 + 1, n_r):
+            for c1 in range(n_c):
+                for c2 in range(c1 + 1, n_c):
+                    row_1, row_2 = r_act[r1], r_act[r2]
+                    col_1, col_2 = c_act[c1], c_act[c2]
+                    
+                    a = A[row_1, col_1]
+                    b = A[row_1, col_2]
+                    c = A[row_2, col_1]
+                    d = A[row_2, col_2]
+                    
+                    det = a - b - c + d
+                    if det != 0:
+                        p1_prob = (d - c) / det
+                        p2_prob = (d - b) / det
+                        
+                        if 0 <= p1_prob <= 1 and 0 <= p2_prob <= 1:
+                            v_sub = (a * d - b * c) / det
+                            p1_test = np.zeros(rows)
+                            p1_test[row_1] = p1_prob
+                            p1_test[row_2] = 1.0 - p1_prob
+                            
+                            p2_test = np.zeros(cols)
+                            p2_test[col_1] = p2_prob
+                            p2_test[col_2] = 1.0 - p2_prob
+                            
+                            # Verify if the 2x2 subgame is a global equilibrium
+                            exp_p1 = np.zeros(rows)
+                            exp_p2 = np.zeros(cols)
+                            for i in range(rows):
+                                for j in range(cols):
+                                    exp_p1[i] += A[i, j] * p2_test[j]
+                                    exp_p2[j] += p1_test[i] * A[i, j]
+                                    
+                            if np.max(exp_p2) <= v_sub + 1e-6 and np.min(exp_p1) >= v_sub - 1e-6:
+                                return p1_test, p2_test
 
-    # Reconstruct the full 3-length probability vectors, assigning 0 to dominated strategies
-    p1, p2 = np.zeros(rows), np.zeros(cols)
-    p1[v_rows], p2[v_cols] = np.clip(p1_sub, 0, 1), np.clip(p2_sub, 0, 1)
-    
-    # Normalize to ensure floating point math strictly sums to 1.0 (valid probability distribution)
-    p1 /= np.sum(p1); p2 /= np.sum(p2)
+    # Absolute Fallback (mathematically rare in proper zero-sum definitions)
+    p1 = np.zeros(rows); p1[v_rows] = 1.0 / n_r
+    p2 = np.zeros(cols); p2[v_cols] = 1.0 / n_c
     return p1, p2
+
+@njit(nogil=True)
+def solve_zero_sum_matrix(A):
+    """
+    Computes the Value of the Game (v*) for a given payoff matrix A.
+    Used extensively by the RL agents to find the Temporal Difference target.
+    """
+    # Re-use the exact Numba-compiled probability solver directly
+    p1, p2 = get_nash_probs(A)
+    
+    # Calculate expected value v* = p1^T * A * p2 using ultra-fast nested C-loops
+    v = 0.0
+    rows = A.shape[0]
+    cols = A.shape[1]
+    for i in range(rows):
+        for j in range(cols):
+            v += p1[i] * A[i, j] * p2[j]
+            
+    return float(v)

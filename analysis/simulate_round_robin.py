@@ -124,7 +124,7 @@ def run_round_robin():
     # Calculate all C(7, 2) unique cross-play combinations
     matchups = list(itertools.combinations(agents, 2))
     
-    games_per_matchup = 100000 
+    games_per_matchup = 1000000 
     
     # Initialize the N x N payoff matrices
     win_matrix = np.full((len(agents), len(agents)), 50.0)

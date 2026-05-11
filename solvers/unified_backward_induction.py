@@ -17,11 +17,12 @@ import os
 import time
 import numpy as np
 import multiprocessing as mp
+from numba import njit
 from collections import defaultdict
 from core.state_encoder import decode_state
 from core.environment import MiniQwixxEnv, calculate_score, UNIQUE_DICE, get_state_depth
 from core.constants import WHITE_ACTIONS, COLOR_ACTIONS, TOTAL_STATES
-from solvers.matrix_math import get_nash_probs
+from solvers.matrix_math import get_nash_probs, solve_zero_sum_matrix
 
 # Globals for the memory-mapped worker processes
 shared_V = None
@@ -32,6 +33,15 @@ def init_worker(shared_array, shape, bonus=10.0):
     global shared_V, HYBRID_WIN_BONUS
     shared_V = np.frombuffer(shared_array, dtype=np.float32).reshape(shape)
     HYBRID_WIN_BONUS = bonus
+
+# Helper to bypass Python's '@' operator overhead for 3x3 array multiplication
+@njit(nogil=True)
+def fast_expected_value(p1, S, p2):
+    v = 0.0
+    for i in range(3):
+        for j in range(3):
+            v += p1[i] * S[i, j] * p2[j]
+    return v
 
 # ==========================================
 # 1. WIN PROBABILITY SOLVER (Thesis Eq 3)
@@ -54,6 +64,9 @@ def solve_win_prob(state_int):
         shared_V[state_int, 1] = val
         return
 
+    # Pre-allocate payoff matrix to avoid 61M+ garbage collections in the inner loop
+    payoff_matrix = np.empty((3, 3), dtype=np.float32)
+
     # Recursive Step: Evaluate Bellman Backup for both possible active players
     for active_player in [1, 2]:
         next_idx = 1 if active_player == 1 else 0
@@ -61,7 +74,6 @@ def solve_win_prob(state_int):
         
         # Thesis Eq 6: Integrate over the probability distribution of chance nodes (d \sim D)
         for dice in UNIQUE_DICE:
-            payoff_matrix = np.zeros((3, 3), dtype=np.float32)
             
             # Construct the 3x3 Zero-Sum Subgame (Simultaneous White Phase)
             for w1_idx, a_w1 in enumerate(WHITE_ACTIONS):
@@ -87,11 +99,8 @@ def solve_win_prob(state_int):
                     payoff_matrix[w1_idx, w2_idx] = best_val
             
             # Thesis Eq 8: Solve for the exact Subgame Perfect Equilibrium probabilities (Minimax Theorem)
-            p1_probs, p2_probs = get_nash_probs(payoff_matrix)
-            
-            # Expected value under optimal mixed strategy support: p1^T * A * p2
-            val_matrix = p1_probs.T @ payoff_matrix @ p2_probs
-            expected_win_margin += dice['prob'] * val_matrix
+            # Upgraded to use the direct C-compiled solver for maximum speed
+            expected_win_margin += dice['prob'] * solve_zero_sum_matrix(payoff_matrix)
             
         shared_V[state_int, 0 if active_player == 1 else 1] = expected_win_margin
 
@@ -121,12 +130,14 @@ def solve_hybrid(state_int):
         shared_V[state_int, 1] = hybrid_val
         return
 
+    # Pre-allocate payoff matrix
+    payoff_matrix = np.empty((3, 3), dtype=np.float32)
+
     for active_player in [1, 2]:
         next_idx = 1 if active_player == 1 else 0
         expected_hybrid_margin = 0.0
         
         for dice in UNIQUE_DICE:
-            payoff_matrix = np.zeros((3, 3), dtype=np.float32)
             for w1_idx, a_w1 in enumerate(WHITE_ACTIONS):
                 for w2_idx, a_w2 in enumerate(WHITE_ACTIONS):
                     best_val = -9999.0 if active_player == 1 else 9999.0
@@ -147,9 +158,7 @@ def solve_hybrid(state_int):
                     payoff_matrix[w1_idx, w2_idx] = best_val
             
             # Subgame Perfect Equilibrium calculation
-            p1_probs, p2_probs = get_nash_probs(payoff_matrix)
-            val_matrix = p1_probs.T @ payoff_matrix @ p2_probs
-            expected_hybrid_margin += dice['prob'] * val_matrix
+            expected_hybrid_margin += dice['prob'] * solve_zero_sum_matrix(payoff_matrix)
             
         shared_V[state_int, 0 if active_player == 1 else 1] = expected_hybrid_margin
 
@@ -173,15 +182,16 @@ def solve_score_diff(state_int):
         shared_V[state_int, 1, 0], shared_V[state_int, 1, 1] = s1, s2
         return
 
+    # Pre-allocate matrices to bypass garbage collection overhead
+    payoff_matrix = np.empty((3, 3), dtype=np.float32)
+    s1_matrix = np.empty((3, 3), dtype=np.float32)
+    s2_matrix = np.empty((3, 3), dtype=np.float32)
+
     for active_player in [1, 2]:
         next_idx = 1 if active_player == 1 else 0
         expected_s1, expected_s2 = 0.0, 0.0
         
         for dice in UNIQUE_DICE:
-            payoff_matrix = np.zeros((3, 3), dtype=np.float32)
-            s1_matrix = np.zeros((3, 3), dtype=np.float32)
-            s2_matrix = np.zeros((3, 3), dtype=np.float32)
-            
             for w1_idx, a_w1 in enumerate(WHITE_ACTIONS):
                 for w2_idx, a_w2 in enumerate(WHITE_ACTIONS):
                     best_diff = -9999.0 if active_player == 1 else 9999.0
@@ -210,9 +220,9 @@ def solve_score_diff(state_int):
             
             p1_probs, p2_probs = get_nash_probs(payoff_matrix)
             
-            # Calculate Expected Values by applying the mixed strategy support to the raw score matrices
-            expected_s1 += dice['prob'] * (p1_probs.T @ s1_matrix @ p2_probs)
-            expected_s2 += dice['prob'] * (p1_probs.T @ s2_matrix @ p2_probs)
+            # Calculate Expected Values natively without standard NumPy object dispatch
+            expected_s1 += dice['prob'] * fast_expected_value(p1_probs, s1_matrix, p2_probs)
+            expected_s2 += dice['prob'] * fast_expected_value(p1_probs, s2_matrix, p2_probs)
             
         shared_V[state_int, 0 if active_player == 1 else 1, 0] = expected_s1
         shared_V[state_int, 0 if active_player == 1 else 1, 1] = expected_s2
@@ -239,14 +249,15 @@ def solve_solo(state_int):
         shared_V[state_int, 1, 0], shared_V[state_int, 1, 1] = s1, s2
         return
 
+    # Pre-allocate payoff matrix
+    p1_matrix = np.empty((3, 3), dtype=np.float32)
+    p2_matrix = np.empty((3, 3), dtype=np.float32)
+
     for active_player in [1, 2]:
         next_idx = 1 if active_player == 1 else 0
         expected_score1, expected_score2 = 0.0, 0.0
         
         for dice in UNIQUE_DICE:
-            p1_matrix = np.zeros((3, 3), dtype=np.float32)
-            p2_matrix = np.zeros((3, 3), dtype=np.float32)
-            
             for w1_idx, a_w1 in enumerate(WHITE_ACTIONS):
                 for w2_idx, a_w2 in enumerate(WHITE_ACTIONS):
                     best_active_val = -9999.0
@@ -256,8 +267,13 @@ def solve_solo(state_int):
                     for a_c in COLOR_ACTIONS:
                         next_s, is_term = MiniQwixxEnv.step(state_int, active_player, dice, a_w1, a_w2, a_c)
                         
-                        f_score1 = shared_V[next_s, next_idx, 0]
-                        f_score2 = shared_V[next_s, next_idx, 1]
+                        if is_term:
+                            np1_r, np1_b, np1_p, np2_r, np2_b, np2_p = decode_state(next_s)
+                            f_score1 = float(calculate_score(np1_r, np1_b, np1_p))
+                            f_score2 = float(calculate_score(np2_r, np2_b, np2_p))
+                        else:
+                            f_score1 = shared_V[next_s, next_idx, 0]
+                            f_score2 = shared_V[next_s, next_idx, 1]
                         
                         if active_player == 1 and f_score1 > best_active_val:
                             best_active_val, best_vals_pair = f_score1, (f_score1, f_score2)
@@ -268,10 +284,9 @@ def solve_solo(state_int):
                     p2_matrix[w1_idx, w2_idx] = best_vals_pair[1]
             
             # Thesis Eq 11 & 12: Solo players ignore the matrix equilibrium entirely.
-            # They treat the opponent as uniform environmental noise, taking the argmax 
-            # of their own expected row/col means (equivalent to the 1/|Aw| fraction).
-            best_w1_idx = np.argmax(np.mean(p1_matrix, axis=1))
-            best_w2_idx = np.argmax(np.mean(p2_matrix, axis=0))
+            # Using np.sum avoids the floating-point division step of np.mean, speeding up the argmax search.
+            best_w1_idx = np.argmax(np.sum(p1_matrix, axis=1))
+            best_w2_idx = np.argmax(np.sum(p2_matrix, axis=0))
             
             # Thesis Eq 13: The deterministic intersection of these independent choices.
             expected_score1 += dice['prob'] * p1_matrix[best_w1_idx, best_w2_idx]
@@ -350,6 +365,6 @@ if __name__ == '__main__':
     
     # Change this string to run different models!
     # Options: 'win_prob', 'hybrid', 'score_diff', 'solo'
-    TARGET_MODEL = 'win_prob'  
+    TARGET_MODEL = 'hybrid'  
     
-    run_unified_induction(model_type=TARGET_MODEL, hybrid_bonus=10.0)
+    run_unified_induction(model_type=TARGET_MODEL, hybrid_bonus=50.0)

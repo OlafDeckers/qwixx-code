@@ -16,10 +16,19 @@ Thesis Reference: Section "Structural Properties: The DAG Advantage"
 import os
 import time
 import numpy as np
+from numba import njit
 from collections import deque
 from core.state_encoder import encode_state, decode_state
-from core.environment import MiniQwixxEnv, get_state_depth
+from core.environment import MiniQwixxEnv, get_state_depth, UNIQUE_DICE
 from core.constants import WHITE_ACTIONS, COLOR_ACTIONS
+
+# [Computational Upgrade: Vectorized C-loop for instantaneous DAG depth calculation]
+@njit(nogil=True)
+def compute_all_depths(state_array):
+    depths = np.zeros(len(state_array), dtype=np.int32)
+    for i in range(len(state_array)):
+        depths[i] = get_state_depth(state_array[i])
+    return depths
 
 def generate_state_space():
     """
@@ -31,12 +40,9 @@ def generate_state_space():
     
     # 1. Generate the Stochastic Chance Nodes (D)
     # 81 possible permutations for D3 dice rolls (3^4)
-    dice_combinations = []
-    for w1 in [1, 2, 3]:
-        for w2 in [1, 2, 3]:
-            for r in [1, 2, 3]:
-                for b in [1, 2, 3]:
-                    dice_combinations.append({'W1': w1, 'W2': w2, 'R': r, 'B': b})
+    # [Computational Upgrade: Replaced 81 raw permutations with 54 UNIQUE_DICE 
+    #  to instantly cut BFS expansion workload by 33% without missing states]
+    dice_combinations = UNIQUE_DICE
     
     # 2. Initialize BFS structures
     # s_0: The origin node of the Markov Game (empty board, zero penalties)
@@ -45,6 +51,10 @@ def generate_state_space():
     queue = deque([start_state])
     
     states_processed = 0
+    
+    # [Computational Upgrade: Pre-packing the joint action space avoids the 
+    #  heavy overhead of instantiating nested Python iterators millions of times]
+    joint_actions = [(w1, w2, c) for w1 in WHITE_ACTIONS for w2 in WHITE_ACTIONS for c in COLOR_ACTIONS]
     
     # 3. BFS Forward-Reachability Loop
     # Expands the frontier of the graph by applying the Transition Function T(s, a, d)
@@ -70,19 +80,17 @@ def generate_state_space():
         for active_player in [1, 2]:
             for dice in dice_combinations:
                 # Joint Action Space evaluation: Aw1 x Aw2 x Ac
-                for a_w1 in WHITE_ACTIONS:
-                    for a_w2 in WHITE_ACTIONS:
-                        for a_c in COLOR_ACTIONS:
-                            
-                            # Apply the deterministic environment transition T(s, a, d)
-                            next_state, _ = MiniQwixxEnv.step(
-                                current_state, active_player, dice, a_w1, a_w2, a_c
-                            )
-                            
-                            # Add strictly novel states to the frontier
-                            if next_state not in visited:
-                                visited.add(next_state)
-                                queue.append(next_state)
+                for a_w1, a_w2, a_c in joint_actions:
+                    
+                    # Apply the deterministic environment transition T(s, a, d)
+                    next_state, _ = MiniQwixxEnv.step(
+                        current_state, active_player, dice, a_w1, a_w2, a_c
+                    )
+                    
+                    # Add strictly novel states to the frontier
+                    if next_state not in visited:
+                        visited.add(next_state)
+                        queue.append(next_state)
                                 
     print(f"\nBFS Complete! Total Unique Reachable States Found: {len(visited)}")
     
@@ -92,10 +100,13 @@ def generate_state_space():
     # that when evaluating V*(s) in backward induction, V*(s') for all future transitions 
     # has already been computed.
     print("Topologically sorting states by depth...")
-    sorted_states = sorted(list(visited), key=get_state_depth)
     
-    # Convert to a flat, fast numpy array (32-bit integers) to optimize memory during DP
-    dag_array = np.array(sorted_states, dtype=np.int32)
+    # [Computational Upgrade: Replaced Python's native sorted() with Numba depth arrays 
+    #  and NumPy argsort to eliminate 565k+ Python function calls]
+    unsorted_states = np.array(list(visited), dtype=np.int32)
+    depths = compute_all_depths(unsorted_states)
+    sorted_indices = np.argsort(depths)
+    dag_array = unsorted_states[sorted_indices]
     
     # 6. Cache the Graph
     # We serialize the DAG to disk so the expensive BFS only ever runs once.

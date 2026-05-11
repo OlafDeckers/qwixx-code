@@ -9,17 +9,22 @@ probability distributions of the stochastic chance nodes.
 
 import numpy as np
 import random
+from numba import njit
 from core.state_encoder import encode_state, decode_state
 from core.constants import ROW_ID_TO_COUNT
 from collections import Counter
 
+# Convert strictly to a 32-bit NumPy array for blazing fast Numba memory lookups
+ROW_ID_TO_COUNT_ARR = np.array(ROW_ID_TO_COUNT, dtype=np.int32)
+
+@njit(nogil=True)
 def calculate_score(r_id, b_id, penalties):
     """
     Thesis Reference: Equation 2 (Triangular Number Scoring Rule).
     Computes the terminal score for a player based on their crossed boxes and penalties.
     Score = [ c_red(c_red + 1)/2 ] + [ c_blue(c_blue + 1)/2 ] - 3*p
     """
-    count_r, count_b = ROW_ID_TO_COUNT[r_id], ROW_ID_TO_COUNT[b_id]
+    count_r, count_b = ROW_ID_TO_COUNT_ARR[r_id], ROW_ID_TO_COUNT_ARR[b_id]
     
     # If the row is locked (ID >= 11), the player receives a +1 cross bonus
     if r_id >= 11: count_r += 1
@@ -52,6 +57,7 @@ def _generate_unique_dice_combinations():
 # Compute the probability space once globally for the solver algorithms
 UNIQUE_DICE = _generate_unique_dice_combinations()
 
+@njit(nogil=True)
 def get_state_depth(state_int):
     """
     Calculates the topological depth of state s ∈ S.
@@ -60,8 +66,8 @@ def get_state_depth(state_int):
     Depth = Total Marks + Total Penalties.
     """
     p1_r, p1_b, p1_p, p2_r, p2_b, p2_p = decode_state(state_int)
-    return ROW_ID_TO_COUNT[p1_r] + ROW_ID_TO_COUNT[p1_b] + p1_p + \
-           ROW_ID_TO_COUNT[p2_r] + ROW_ID_TO_COUNT[p2_b] + p2_p
+    return ROW_ID_TO_COUNT_ARR[p1_r] + ROW_ID_TO_COUNT_ARR[p1_b] + p1_p + \
+           ROW_ID_TO_COUNT_ARR[p2_r] + ROW_ID_TO_COUNT_ARR[p2_b] + p2_p
 
 # ==========================================
 # 1. STATE SPACE ENCODING (The Tuple representation)
@@ -71,6 +77,14 @@ def get_state_depth(state_int):
 # number of crossed boxes (for terminal scoring). 
 # We map these (index, count) pairs to a single integer ID [0 to 13].
 
+# Array mapping: ROW_DETAILS_ARRAY[row_id] = [rightmost_index, count]
+# Converts O(N) if/elif branches into O(1) CPU pointer lookups
+ROW_DETAILS_ARRAY = np.array([
+    [-1, 0], [0, 1], [1, 1], [1, 2], [2, 1], [2, 2], [2, 3],
+    [3, 1], [3, 2], [3, 3], [3, 4], [4, 4], [4, 5], [4, 6]
+], dtype=np.int32)
+
+@njit(nogil=True)
 def get_row_id(idx, count):
     """Maps a formal (rightmost_index, count) state to its composite Row ID."""
     if idx == -1: return 0
@@ -81,15 +95,11 @@ def get_row_id(idx, count):
     if idx == 4: return count + 7  # Lock box (counts 4, 5, 6 map to 11, 12, 13)
     return -1
 
+@njit(nogil=True)
 def get_row_details(row_id):
     """Decodes a composite Row ID back to its (rightmost_index, count) state."""
-    if row_id == 0: return -1, 0
-    if row_id == 1: return 0, 1
-    if 2 <= row_id <= 3: return 1, row_id - 1
-    if 4 <= row_id <= 6: return 2, row_id - 3
-    if 7 <= row_id <= 10: return 3, row_id - 6
-    if 11 <= row_id <= 13: return 4, row_id - 7
-    return -1, 0
+    return ROW_DETAILS_ARRAY[row_id][0], ROW_DETAILS_ARRAY[row_id][1]
+
 
 # ==========================================
 # 2. TRANSITION MATRIX (Row-Level Irreversibility)
@@ -137,15 +147,9 @@ class MiniQwixxEnv:
         """
         p1_r, p1_b, p1_p, p2_r, p2_b, p2_p = decode_state(state_int)
         
-        # Determine current lock status
-        red_locked = MiniQwixxEnv.is_row_locked(p1_r, p2_r)
-        blue_locked = MiniQwixxEnv.is_row_locked(p1_b, p2_b)
-        
-        # Linear transformation mapping a dice sum to a 0-indexed array position
-        def get_box_idx(color, dice_sum):
-            if color == 'R': return dice_sum - 2  # Ascending Red: 2->0, 3->1, 4->2, 5->3, 6->4
-            if color == 'B': return 6 - dice_sum  # Descending Blue: 6->0, 5->1, 4->2, 3->3, 2->4
-            return -1
+        # Determine current lock status (Inlined logic for O(1) performance)
+        red_locked = (p1_r >= 11) or (p2_r >= 11)
+        blue_locked = (p1_b >= 11) or (p2_b >= 11)
 
         # ------------------------------------------------
         # 1. Resolve White Phase (Simultaneous Decision)
@@ -155,12 +159,14 @@ class MiniQwixxEnv:
         # Resolve Player 1 White Action
         p1_marked_white = False
         if a_w1 == 'R' and not red_locked:
-            new_r = ROW_TRANSITIONS[p1_r][get_box_idx('R', white_sum)]
+            # Inline Affine Transformation (dice_sum - 2) avoids function call overhead
+            new_r = ROW_TRANSITIONS[p1_r][white_sum - 2]
             if new_r != -1: 
                 p1_r = new_r
                 p1_marked_white = True
         elif a_w1 == 'B' and not blue_locked:
-            new_b = ROW_TRANSITIONS[p1_b][get_box_idx('B', white_sum)]
+            # Inline Affine Transformation (6 - dice_sum) avoids function call overhead
+            new_b = ROW_TRANSITIONS[p1_b][6 - white_sum]
             if new_b != -1: 
                 p1_b = new_b
                 p1_marked_white = True
@@ -168,19 +174,19 @@ class MiniQwixxEnv:
         # Resolve Player 2 White Action
         p2_marked_white = False
         if a_w2 == 'R' and not red_locked:
-            new_r = ROW_TRANSITIONS[p2_r][get_box_idx('R', white_sum)]
+            new_r = ROW_TRANSITIONS[p2_r][white_sum - 2]
             if new_r != -1: 
                 p2_r = new_r
                 p2_marked_white = True
         elif a_w2 == 'B' and not blue_locked:
-            new_b = ROW_TRANSITIONS[p2_b][get_box_idx('B', white_sum)]
+            new_b = ROW_TRANSITIONS[p2_b][6 - white_sum]
             if new_b != -1: 
                 p2_b = new_b
                 p2_marked_white = True
 
         # Re-evaluate lock constraints immediately after the White Phase
-        red_locked = MiniQwixxEnv.is_row_locked(p1_r, p2_r)
-        blue_locked = MiniQwixxEnv.is_row_locked(p1_b, p2_b)
+        red_locked = (p1_r >= 11) or (p2_r >= 11)
+        blue_locked = (p1_b >= 11) or (p2_b >= 11)
 
         # ------------------------------------------------
         # 2. Resolve Color Phase (Sequential, Active Player Only)
@@ -190,28 +196,30 @@ class MiniQwixxEnv:
         if a_c is not None:
             c_color = a_c[0]  # 'R' or 'B'
             w_die = dice['W1'] if a_c[1] == '1' else dice['W2']
-            c_die = dice[c_color]
-            color_sum = w_die + c_die
+            color_sum = w_die + dice[c_color]
+            
+            # Inline Box Array logic
+            box_idx = color_sum - 2 if c_color == 'R' else 6 - color_sum
             
             if active_player == 1:
                 if c_color == 'R' and not red_locked:
-                    new_r = ROW_TRANSITIONS[p1_r][get_box_idx('R', color_sum)]
+                    new_r = ROW_TRANSITIONS[p1_r][box_idx]
                     if new_r != -1:
                         p1_r = new_r
                         active_marked_color = True
                 elif c_color == 'B' and not blue_locked:
-                    new_b = ROW_TRANSITIONS[p1_b][get_box_idx('B', color_sum)]
+                    new_b = ROW_TRANSITIONS[p1_b][box_idx]
                     if new_b != -1:
                         p1_b = new_b
                         active_marked_color = True
             else:
                 if c_color == 'R' and not red_locked:
-                    new_r = ROW_TRANSITIONS[p2_r][get_box_idx('R', color_sum)]
+                    new_r = ROW_TRANSITIONS[p2_r][box_idx]
                     if new_r != -1:
                         p2_r = new_r
                         active_marked_color = True
                 elif c_color == 'B' and not blue_locked:
-                    new_b = ROW_TRANSITIONS[p2_b][get_box_idx('B', color_sum)]
+                    new_b = ROW_TRANSITIONS[p2_b][box_idx]
                     if new_b != -1:
                         p2_b = new_b
                         active_marked_color = True
@@ -233,13 +241,10 @@ class MiniQwixxEnv:
         # ------------------------------------------------
         # The game reaches a terminal absorbing state if either player accrues 
         # 3 penalties, or if both color rows become locked.
-        red_locked = MiniQwixxEnv.is_row_locked(p1_r, p2_r)
-        blue_locked = MiniQwixxEnv.is_row_locked(p1_b, p2_b)
-        
         is_terminal = False
         if p1_p >= 3 or p2_p >= 3:
             is_terminal = True
-        elif red_locked and blue_locked:
+        elif ((p1_r >= 11) or (p2_r >= 11)) and ((p1_b >= 11) or (p2_b >= 11)):
             is_terminal = True
 
         new_state_int = encode_state(p1_r, p1_b, p1_p, p2_r, p2_b, p2_p)
