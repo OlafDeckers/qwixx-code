@@ -2,10 +2,10 @@ import os
 import matplotlib.pyplot as plt
 from analysis.evaluator import TournamentEngine
 
-def calculate_spectrum_poa():
+def calculate_spectrum_poc():
     """
-    Calculates the Price of Anarchy (PoA) spectrum as described in the thesis.
-    The PoA measures the degradation of system efficiency (total points scored) 
+    Calculates the Price of Competition (PoC) spectrum as described in the thesis.
+    The PoC measures the degradation of system efficiency (total points scored) 
     caused by agents playing competitively (zero-sum) rather than cooperatively.
     """
     
@@ -18,7 +18,7 @@ def calculate_spectrum_poa():
     results_welfare = {}
 
     print("\n" + "="*75)
-    print(f" CALCULATING PRICE OF ANARCHY SPECTRUM ({games_per_agent} Games/Agent)")
+    print(f" CALCULATING PRICE OF COMPETITION ({games_per_agent} Games/Agent)")
     print("="*75)
 
     # Step 1: Calculate the Expected Social Welfare (W) for each strategy
@@ -41,34 +41,34 @@ def calculate_spectrum_poa():
     w_opt = results_welfare['SOLO']
 
     print("\n" + "="*75)
-    print(" FINAL RESULTS: THE PRICE OF ANARCHY SPECTRUM")
+    print(" FINAL RESULTS: THE PRICE OF COMPETITION IN MINI-QWIXX")
     print("="*75)
     print(f"Optimal Social Welfare (W_opt): {w_opt:.2f} Total Points per game\n")
-    print(f"{'Strategy Type':<25} | {'Social Welfare':<15} | {'PoA (W_opt / W_nash)'}")
+    print(f"{'Strategy Type':<25} | {'Social Welfare':<15} | {'PoC (W_opt / W_nash)'}")
     print("-" * 75)
     
     plot_labels, welfares_to_plot, poas_to_plot = [], [], []
 
-    # Step 3: Calculate the Price of Anarchy for the adversarial/zero-sum agents
+    # Step 3: Calculate the Price of Competition for the adversarial/zero-sum agents
     for agent in ['SCORE', 'HYBRID_5', 'HYBRID_10', 'HYBRID_25', 'HYBRID_50', 'WIN']:
         w_nash = results_welfare[agent]
         
-        # Thesis Reference: Equation 15 -> PoA = W_solo / W_nash
-        # A PoA of 1.0 means perfectly efficient. > 1.0 indicates value destroyed by defensive play.
-        poa = w_opt / w_nash
+        # Thesis Reference: Equation 15 -> PoC = W_solo / W_nash
+        # A PoC of 1.0 means perfectly efficient. > 1.0 indicates value destroyed by defensive play.
+        poc = w_opt / w_nash
         
-        print(f"{agent:<25} | {w_nash:<15.2f} | {poa:.4f}")
+        print(f"{agent:<25} | {w_nash:<15.2f} | {poc:.4f}")
         
         # Map internal variable names to clean labels for the Matplotlib graph
         label_map = {'SCORE': 'Score', 'HYBRID_5': 'Hybrid 5', 'HYBRID_10': 'Hybrid 10', 'HYBRID_25': 'Hybrid 25', 'HYBRID_50': 'Hybrid 50', 'WIN': 'Win Prob'}
-        plot_labels.append(label_map[agent]); welfares_to_plot.append(w_nash); poas_to_plot.append(poa)
+        plot_labels.append(label_map[agent]); welfares_to_plot.append(w_nash); poas_to_plot.append(poc)
         
     print("="*75)
     print("\nGenerating visual plot...")
     
     # ========================================================
     # MATPLOTLIB VISUALIZATION
-    # Generates a dual-axis chart: Bar chart for Welfare, Line chart for PoA.
+    # Generates a dual-axis chart: Bar chart for Welfare, Line chart for PoC.
     # ========================================================
     fig, ax1 = plt.subplots(figsize=(10, 6))
     
@@ -86,20 +86,20 @@ def calculate_spectrum_poa():
     # Right Y-Axis: Price of Anarchy Ratio (Line Plot)
     ax2 = ax1.twinx()  
     color_line = '#D0021B'
-    ax2.set_ylabel('Price of Anarchy (PoA)', color=color_line, fontsize=12, fontweight='bold')
-    ax2.plot(plot_labels, poas_to_plot, color=color_line, marker='o', markersize=8, linewidth=3, label='PoA')
+    ax2.set_ylabel('Price of Competition (PoC)', color=color_line, fontsize=12, fontweight='bold')
+    ax2.plot(plot_labels, poas_to_plot, color=color_line, marker='o', markersize=8, linewidth=3, label='PoC')
     ax2.tick_params(axis='y', labelcolor=color_line)
     
-    # Scale the PoA axis slightly above the highest value for clean visual padding
+    # Scale the PoC axis slightly above the highest value for clean visual padding
     ax2.set_ylim([0.9, max(poas_to_plot) + 0.15]) 
 
     # Plot styling and saving
-    plt.title('Price of Anarchy Spectrum in Mini-Qwixx', fontsize=16, fontweight='bold')
+    plt.title('Price of Competition in Mini-Qwixx', fontsize=16, fontweight='bold')
     plt.grid(axis='y', linestyle='--', alpha=0.3)
     fig.tight_layout() 
 
     os.makedirs('plots', exist_ok=True)
-    plot_path = 'plots/price_of_anarchy_spectrum.png'
+    plot_path = 'plots/price_of_competition_spectrum.png'
     plt.savefig(plot_path, dpi=300)
     print(f"Plot saved successfully to: {plot_path}")
     
@@ -107,4 +107,4 @@ def calculate_spectrum_poa():
     plt.show()
 
 if __name__ == '__main__':
-    calculate_spectrum_poa()
+    calculate_spectrum_poc()
