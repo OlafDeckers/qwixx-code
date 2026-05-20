@@ -48,13 +48,13 @@ def plot_heatmaps(win_matrix, p1_score_matrix, p2_score_matrix, p1_margin_matrix
         plt.close() 
 
     # --- Plot 1: Overall Win Rate % ---
-    # Visualizes the empirical approximation of Equation 3 (Win Probability)
+    # Visualizes the empirical approximation of Equation 3 (Win Probability) conditional on starting first.
     plt.figure(figsize=(10, 8))
     sns.heatmap(pd.DataFrame(win_matrix, index=display_names, columns=display_names), 
                 annot=True, fmt=".1f", cmap="RdYlGn", center=50.0, 
-                cbar_kws={'label': 'Win Rate % (Row vs Col)'},
+                cbar_kws={'label': 'Win Rate % (Row as P1)'},
                 linewidths=1, linecolor='black', annot_kws=annot_settings)
-    format_and_save("Qwixx AI: Overall Win Rate (%)", "Opponent Strategy (Column)", "Agent Strategy (Row)", "heatmap_1_win_rate.png")
+    format_and_save("Qwixx AI: Win Rate % (Starting First)", "Opponent Strategy (Player 2)", "Agent Strategy (Player 1)", "heatmap_1_win_rate.png")
 
     # --- Plots 2 & 3: P1 and P2 Points ---
     # Visualizes the expected absolute points (Equation 2) conditional on turn order.
@@ -124,7 +124,7 @@ def run_round_robin():
     # Calculate all C(7, 2) unique cross-play combinations
     matchups = list(itertools.combinations(agents, 2))
     
-    games_per_matchup = 300000 
+    games_per_matchup = 200000 
     
     # Initialize the N x N payoff matrices
     win_matrix = np.full((len(agents), len(agents)), 50.0)
@@ -146,15 +146,17 @@ def run_round_robin():
         # Computes the empirical outcomes of the finite Markov game under the specified policies.
         stats = TournamentEngine.run_nash_matchup(tag_a, tag_b, games_per_matchup)
 
-        # Calculate zero-sum win rates. 
-        # A tie grants exactly 0.5 wins to both players to maintain the constant-sum property.
+        # Calculate zero-sum win rates for terminal output 
         a_win_rate = (((stats['a_as_p1_wins'] + stats['a_as_p2_wins']) + (0.5 * stats['ties'])) / games_per_matchup) * 100
         b_win_rate = (((stats['b_as_p1_wins'] + stats['b_as_p2_wins']) + (0.5 * stats['ties'])) / games_per_matchup) * 100
         
-        win_matrix[a_idx][b_idx] = a_win_rate; win_matrix[b_idx][a_idx] = b_win_rate
+        # Calculate asymmetric win rates (Row agent starting as Player 1 vs Col agent starting as Player 2)
+        half_games = games_per_matchup / 2
+        half_ties = stats['ties'] / 2
+        win_matrix[a_idx][b_idx] = ((stats['a_as_p1_wins'] + 0.5 * half_ties) / half_games) * 100
+        win_matrix[b_idx][a_idx] = ((stats['b_as_p1_wins'] + 0.5 * half_ties) / half_games) * 100
         
         # Normalize the sum of absolute points by the subset of games played in that position (N / 2)
-        half_games = games_per_matchup / 2
         p1_score_matrix[a_idx][b_idx] = stats['a_as_p1_pts'] / half_games
         p1_score_matrix[b_idx][a_idx] = stats['b_as_p1_pts'] / half_games
         p2_score_matrix[a_idx][b_idx] = stats['a_as_p2_pts'] / half_games
