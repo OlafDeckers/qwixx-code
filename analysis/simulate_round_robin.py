@@ -20,12 +20,13 @@ import seaborn as sns
 import pandas as pd
 from analysis.evaluator import TournamentEngine
 
-def plot_heatmaps(win_matrix, p1_score_matrix, p2_score_matrix, p1_margin_matrix, p2_margin_matrix, agents):
+def plot_heatmaps(win_matrix, p1_win_matrix, p1_score_matrix, p2_score_matrix, p1_margin_matrix, p2_margin_matrix, agents):
     """
     Visualizes the N x N asymmetric payoff matrices for the evaluated strategies.
     Diagonal elements (self-play) are masked with NaN to highlight cross-play dynamics.
     """
     np.fill_diagonal(win_matrix, np.nan)
+    np.fill_diagonal(p1_win_matrix, np.nan)
     np.fill_diagonal(p1_score_matrix, np.nan)
     np.fill_diagonal(p2_score_matrix, np.nan)
     np.fill_diagonal(p1_margin_matrix, np.nan)
@@ -48,13 +49,22 @@ def plot_heatmaps(win_matrix, p1_score_matrix, p2_score_matrix, p1_margin_matrix
         plt.close() 
 
     # --- Plot 1: Overall Win Rate % ---
-    # Visualizes the empirical approximation of Equation 3 (Win Probability) conditional on starting first.
+    # Visualizes the empirical approximation of Equation 3 (Win Probability)
     plt.figure(figsize=(10, 8))
     sns.heatmap(pd.DataFrame(win_matrix, index=display_names, columns=display_names), 
                 annot=True, fmt=".1f", cmap="RdYlGn", center=50.0, 
+                cbar_kws={'label': 'Win Rate % (Row vs Col)'},
+                linewidths=1, linecolor='black', annot_kws=annot_settings)
+    format_and_save("Qwixx AI: Overall Win Rate (%)", "Opponent Strategy (Column)", "Agent Strategy (Row)", "heatmap_1_win_rate.png")
+
+    # --- Plot 1b: Win Rate % (Starting First) ---
+    # Visualizes the win probability strictly when the row agent acts as Player 1.
+    plt.figure(figsize=(10, 8))
+    sns.heatmap(pd.DataFrame(p1_win_matrix, index=display_names, columns=display_names), 
+                annot=True, fmt=".1f", cmap="RdYlGn", center=50.0, 
                 cbar_kws={'label': 'Win Rate % (Row as P1)'},
                 linewidths=1, linecolor='black', annot_kws=annot_settings)
-    format_and_save("Qwixx AI: Win Rate % (Starting First)", "Opponent Strategy (Player 2)", "Agent Strategy (Player 1)", "heatmap_1_win_rate.png")
+    format_and_save("Qwixx AI: Win Rate % (Starting First)", "Opponent Strategy (Player 2)", "Agent Strategy (Player 1)", "heatmap_1b_p1_win_rate.png")
 
     # --- Plots 2 & 3: P1 and P2 Points ---
     # Visualizes the expected absolute points (Equation 2) conditional on turn order.
@@ -93,6 +103,16 @@ def plot_heatmaps(win_matrix, p1_score_matrix, p2_score_matrix, p1_margin_matrix
     # ==========================================
     # COMBINED PLOTS (For Side-by-Side Thesis Formatting)
     # ==========================================
+    # 1. Combined Win Rates (Overall vs. Starting First)
+    fig, axes = plt.subplots(1, 2, figsize=(18, 8))
+    sns.heatmap(pd.DataFrame(win_matrix, index=display_names, columns=display_names), annot=True, fmt=".1f", cmap="RdYlGn", center=50.0, cbar_kws={'label': 'Win Rate % (Row vs Col)'}, linewidths=1, linecolor='black', annot_kws=annot_settings, ax=axes[0])
+    axes[0].set_title("Overall Win Rate (%)", fontsize=16, fontweight='bold', pad=15); axes[0].set_xlabel("Opponent Strategy (Column)", fontsize=12, fontweight='bold'); axes[0].set_ylabel("Agent Strategy (Row)", fontsize=12, fontweight='bold'); axes[0].tick_params(axis='x', rotation=45); axes[0].tick_params(axis='y', rotation=0)
+
+    sns.heatmap(pd.DataFrame(p1_win_matrix, index=display_names, columns=display_names), annot=True, fmt=".1f", cmap="RdYlGn", center=50.0, cbar_kws={'label': 'Win Rate % (Row as P1)'}, linewidths=1, linecolor='black', annot_kws=annot_settings, ax=axes[1])
+    axes[1].set_title("Win Rate % (Starting First)", fontsize=16, fontweight='bold', pad=15); axes[1].set_xlabel("Opponent Strategy (Player 2)", fontsize=12, fontweight='bold'); axes[1].set_ylabel("Agent Strategy (Player 1)", fontsize=12, fontweight='bold'); axes[1].tick_params(axis='x', rotation=45); axes[1].tick_params(axis='y', rotation=0)
+    plt.tight_layout(); plt.savefig('plots/heatmap_combined_win_rates.png', dpi=300, bbox_inches='tight'); plt.close()
+
+    # 2. Combined Score Matrices
     fig, axes = plt.subplots(1, 2, figsize=(18, 8))
     sns.heatmap(pd.DataFrame(p1_score_matrix, index=display_names, columns=display_names), annot=True, fmt=".2f", cmap="Blues", cbar_kws={'label': 'Average Points (As Starter)'}, linewidths=1, linecolor='black', annot_kws=annot_settings, ax=axes[0])
     axes[0].set_title("Average Points Scored (Starting First)", fontsize=16, fontweight='bold', pad=15); axes[0].set_xlabel("Opponent (Player 2)", fontsize=12, fontweight='bold'); axes[0].set_ylabel("Agent (Player 1)", fontsize=12, fontweight='bold'); axes[0].tick_params(axis='x', rotation=45); axes[0].tick_params(axis='y', rotation=0)
@@ -101,6 +121,7 @@ def plot_heatmaps(win_matrix, p1_score_matrix, p2_score_matrix, p1_margin_matrix
     axes[1].set_title("Average Points Scored (Starting Second)", fontsize=16, fontweight='bold', pad=15); axes[1].set_xlabel("Opponent (Player 1)", fontsize=12, fontweight='bold'); axes[1].set_ylabel("Agent (Player 2)", fontsize=12, fontweight='bold'); axes[1].tick_params(axis='x', rotation=45); axes[1].tick_params(axis='y', rotation=0)
     plt.tight_layout(); plt.savefig('plots/heatmap_combined_points.png', dpi=300, bbox_inches='tight'); plt.close()
 
+    # 3. Combined Margins
     fig, axes = plt.subplots(1, 2, figsize=(18, 8))
     sns.heatmap(pd.DataFrame(p1_margin_matrix, index=display_names, columns=display_names), annot=True, fmt=".2f", cmap="Purples", cbar_kws={'label': 'Winning Margin (When P1 Wins)'}, linewidths=1, linecolor='black', annot_kws=annot_settings, ax=axes[0])
     axes[0].set_title("Winning Margin (Starting First)", fontsize=16, fontweight='bold', pad=15); axes[0].set_xlabel("Opponent (Player 2)", fontsize=12, fontweight='bold'); axes[0].set_ylabel("Agent (Player 1)", fontsize=12, fontweight='bold'); axes[0].tick_params(axis='x', rotation=45); axes[0].tick_params(axis='y', rotation=0)
@@ -109,7 +130,7 @@ def plot_heatmaps(win_matrix, p1_score_matrix, p2_score_matrix, p1_margin_matrix
     axes[1].set_title("Winning Margin (Starting Second)", fontsize=16, fontweight='bold', pad=15); axes[1].set_xlabel("Opponent (Player 1)", fontsize=12, fontweight='bold'); axes[1].set_ylabel("Agent (Player 2)", fontsize=12, fontweight='bold'); axes[1].tick_params(axis='x', rotation=45); axes[1].tick_params(axis='y', rotation=0)
     plt.tight_layout(); plt.savefig('plots/heatmap_combined_margins.png', dpi=300, bbox_inches='tight'); plt.close()
 
-    print("\nSuccessfully generated and saved 7 heatmaps!")
+    print("\nSuccessfully generated and saved 9 heatmaps!")
 
 
 def run_round_robin():
@@ -128,6 +149,7 @@ def run_round_robin():
     
     # Initialize the N x N payoff matrices
     win_matrix = np.full((len(agents), len(agents)), 50.0)
+    p1_win_matrix = np.full((len(agents), len(agents)), 50.0)
     p1_score_matrix = np.full((len(agents), len(agents)), 0.0)
     p2_score_matrix = np.full((len(agents), len(agents)), 0.0)
     p1_margin_matrix = np.full((len(agents), len(agents)), np.nan)
@@ -146,15 +168,17 @@ def run_round_robin():
         # Computes the empirical outcomes of the finite Markov game under the specified policies.
         stats = TournamentEngine.run_nash_matchup(tag_a, tag_b, games_per_matchup)
 
-        # Calculate zero-sum win rates for terminal output 
+        # Calculate zero-sum overall win rates (Averaged across positions)
         a_win_rate = (((stats['a_as_p1_wins'] + stats['a_as_p2_wins']) + (0.5 * stats['ties'])) / games_per_matchup) * 100
         b_win_rate = (((stats['b_as_p1_wins'] + stats['b_as_p2_wins']) + (0.5 * stats['ties'])) / games_per_matchup) * 100
+        
+        win_matrix[a_idx][b_idx] = a_win_rate; win_matrix[b_idx][a_idx] = b_win_rate
         
         # Calculate asymmetric win rates (Row agent starting as Player 1 vs Col agent starting as Player 2)
         half_games = games_per_matchup / 2
         half_ties = stats['ties'] / 2
-        win_matrix[a_idx][b_idx] = ((stats['a_as_p1_wins'] + 0.5 * half_ties) / half_games) * 100
-        win_matrix[b_idx][a_idx] = ((stats['b_as_p1_wins'] + 0.5 * half_ties) / half_games) * 100
+        p1_win_matrix[a_idx][b_idx] = ((stats['a_as_p1_wins'] + 0.5 * half_ties) / half_games) * 100
+        p1_win_matrix[b_idx][a_idx] = ((stats['b_as_p1_wins'] + 0.5 * half_ties) / half_games) * 100
         
         # Normalize the sum of absolute points by the subset of games played in that position (N / 2)
         p1_score_matrix[a_idx][b_idx] = stats['a_as_p1_pts'] / half_games
@@ -171,7 +195,7 @@ def run_round_robin():
         print(f"  -> {tag_a}: {a_win_rate:.1f}% | {tag_b}: {b_win_rate:.1f}% | Ties: {(stats['ties']/games_per_matchup)*100:.1f}%")
 
     print("\nGenerating Master Heatmaps...")
-    plot_heatmaps(win_matrix, p1_score_matrix, p2_score_matrix, p1_margin_matrix, p2_margin_matrix, agents)
+    plot_heatmaps(win_matrix, p1_win_matrix, p1_score_matrix, p2_score_matrix, p1_margin_matrix, p2_margin_matrix, agents)
 
 if __name__ == '__main__':
     run_round_robin()
