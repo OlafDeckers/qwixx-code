@@ -69,7 +69,6 @@ def run_deep_analysis():
     plt.ylabel('Player 1 Score Margin', fontsize=12)
     
     # Formatting ticks
-    ax.invert_yaxis() 
     plt.tight_layout()
     plt.savefig('plots/variance_horizon.png', dpi=300, bbox_inches='tight')
     print("\nSUCCESS! Heatmap saved to 'plots/variance_horizon.png'")
