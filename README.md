@@ -1,180 +1,94 @@
-Qwixx AI: Minimax Backward Induction & Reinforcement Learning
+```markdown
+# Qwixx AI: Minimax Backward Induction & Reinforcement Learning 
 
-This repository contains the complete implementation for solving and evaluating Mini-Qwixx, a reduced-state variant of the dice game Qwixx, using both exact game-theoretic methods and reinforcement learning.
+This repository contains the full source code for the empirical evaluation and mathematical solving of **Mini-Qwixx**, a reduced-state variant of the popular dice game Qwixx. 
 
-The framework models the game as a finite Directed Acyclic Graph (DAG) with 565,656 unique states, computes exact Subgame Perfect Nash Equilibria through parallelized Backward Induction, and compares these optimal strategies against model-free RL agents under multiple competitive objectives.
+The framework models the game as a finite Directed Acyclic Graph (DAG) containing 565,656 distinct states. It calculates exact Subgame Perfect Nash Equilibria via parallelized Backward Induction and evaluates the "Price of Competition" and behavioral mechanics against baseline Reinforcement Learning (RL) agents.
 
-✨ Key Features
-Exact Dynamic Programming Solver
-Computes equilibrium strategies for:
-Win Probability
-Score Difference
-Hybrid utility functions
-Solo score maximization
-Branchless Environment Architecture
-All transitions and rule evaluations are precomputed into compact 32-bit lookup arrays.
-Environment steps reduce to branchless O(1) memory accesses.
-Numba-Accelerated Compilation
-Critical solvers and encoders are JIT-compiled with Numba for high-throughput multi-core execution.
-Large-Scale Tournament Engine
-Shared-memory Monte Carlo evaluator supporting millions of rollouts.
-Tracks:
-Win rates
-Score margins
-Penalties
-Marks skipped
-Behavioral efficiency metrics
-Behavioral Game-Theoretic Analysis
-Measures the "Price of Competition"
-Evaluates:
-Offensive rushing
-Defensive stalling
-Risk-sensitive equilibrium behavior
-⚙️ Installation
+## ✨ Key Features
+* **Branchless Architecture:** Environment transitions and rule evaluations are precomputed into strictly typed 32-bit static arrays, reducing environment steps to branchless O(1) memory lookups.
+* **Numba C-Compilation:** Core solvers and state encoders are Just-In-Time (JIT) compiled to bypass the Python Global Interpreter Lock (GIL), enabling massive multi-core throughput.
+* **Unified Tournament Engine:** A custom lock-free, shared-memory evaluator that pits Exact DP models against RL agents over millions of Monte Carlo rollouts to track precise behavioral metrics (margins, penalties, and skipped marks).
 
-Requires Python 3.9+
+---
 
+## ⚙️ Installation & Setup
+
+Ensure you have Python 3.9+ installed. Install the required dependencies:
+
+```bash
 pip install -r requirements.txt
-📂 Project Structure
-core/ — Environment & State Representation
-environment.py
 
-Defines the complete Markov Decision Process (MDP):
+```
 
-White Phase and Color Phase logic
-Legal transitions
-Triangular score calculations
-Terminal state detection
-state_encoder.py
+---
 
-Implements constant-time bijective state encoding:
+## 📂 Project Structure & Core Modules
 
-Multi-dimensional game state → 32-bit integer index
-Optimized for dense array access
-constants.py
+### 1. `core/` (The Environment & MDP Formulation)
 
-Centralized configuration:
+* **`environment.py`**: The central Markov Decision Process (MDP). Enforces legal transitions, resolves the simultaneous White Phase and sequential Color Phase, calculates exact scoring via triangular numbers, and identifies terminal states.
+* **`state_encoder.py`**: Contains the O(1) bijective bitwise encoding/decoding functions that map the multi-dimensional game tuple to a singular 32-bit integer for array indexing.
+* **`constants.py`**: The single source of truth for the action spaces (A_w, A_c), row limits, and probability constants.
 
-Action spaces
-Probability tables
-Row limits
-Scoring constants
-solvers/ — Exact Dynamic Programming
-unified_backward_induction.py
+### 2. `solvers/` (Exact Dynamic Programming)
 
-Main exact solver:
+* **`unified_backward_induction.py`**: The core exact solver. Traverses the topological DAG backwards from terminal states to calculate exact expected values (Win Probability, Score Difference, Hybrid models, and the non-adversarial Solo baseline).
+* **`matrix_math.py`**: A custom, compiled analytical solver used to extract mixed-strategy Nash equilibria from the 3x3 zero-sum simultaneous White Phase payoff matrices without the overhead of heavy LP libraries.
+* **`state_space_graph.py`**: Computes and stores the topological depth sorting required for single-pass backward induction.
 
-Traverses the topological DAG backward
-Computes equilibrium value functions and policies
-matrix_math.py
+### 3. `rl_models/` (Model-Free Baselines)
 
-Custom analytical mixed-strategy solver:
+* **`agents.py`**: Implements Littman's Minimax-Q learning algorithm.
+* **`train_unified.py`**: Executes training loops over millions of episodes utilizing Exploring Starts, and contrasts different mechanisms such as Standard epsilon-greedy, Boltzmann exploration, TD(lambda), and Reward Shaping.
 
-Solves simultaneous 3×3 zero-sum matrices
-Avoids heavy LP dependencies
-state_space_graph.py
+### 4. `analysis/` (Simulation & Visualization)
 
-Builds:
+* **`evaluator.py`**: The central simulation engine (`TournamentEngine`). Performs rapid parallelized rollouts for cross-play tournaments while explicitly tracking complex behavioral metrics (points, margins, skips, penalties).
+* **`simulate_round_robin.py`**: Executes the 7x7 matrix cross-play tournament. Generates heatmaps visualizing Overall Win Rates, First-Mover Advantage, and Expected Margins.
+* **`plot_behavioral_metrics.py`**: Analyzes terminal states under self-play to generate a dual-axis chart comparing **Offensive Rushing** (Marks Skipped) against **Defensive Stalling** (Penalties Taken).
+* **`calculate_spectrum_poc.py`**: Calculates total expected Social Welfare and visually maps the Price of Competition (PoC) across the different objective functions.
+* **`variance_horizon.py`**: Scans the exact DP table to generate a heatmap demonstrating how Win Probability interacts with the Score Margin as game depth increases.
+* **`plot_model_comparison.py`**: Compares the learning efficiency and Mean Squared Error (MSE) convergence of the various RL architectures against the exact mathematical baseline.
 
-Reachability graph
-Topological ordering
-State depth hierarchy
-rl_models/ — Reinforcement Learning Baselines
-agents.py
+---
 
-Implements:
+## 🚀 Execution Pipeline
 
-Littman Minimax-Q Learning
-Competitive tabular RL agents
-train_unified.py
+The framework is designed to be executed sequentially. Run the following commands from the root directory to replicate the full thesis methodology:
 
-Training pipeline supporting:
+**1. Generate the topological state space DAG:**
 
-ε-greedy exploration
-Boltzmann exploration
-TD(λ)
-Reward shaping
-Large-scale self-play
-analysis/ — Evaluation & Visualization
-evaluator.py
-
-High-performance tournament engine:
-
-Parallel rollouts
-Cross-play evaluation
-Behavioral metric tracking
-simulate_round_robin.py
-
-Generates:
-
-Win-rate matrices
-Margin heatmaps
-First-player advantage analysis
-plot_behavioral_metrics.py
-
-Analyzes:
-
-Marks skipped
-Penalties taken
-Offensive vs. defensive strategic behavior
-calculate_spectrum_poc.py
-
-Computes:
-
-Social welfare
-Price of Competition (PoC)
-Objective tradeoff curves
-variance_horizon.py
-
-Visualizes:
-
-Score variance
-Horizon effects
-Win probability interactions
-plot_model_comparison.py
-
-Compares RL agents against exact DP baselines:
-
-Convergence
-MSE
-Learning efficiency
-🚀 Execution Pipeline
-
-Run the following commands sequentially from the repository root.
-
-1. Generate the State-Space DAG
+```bash
 python solvers/state_space_graph.py
-2. Compute Exact Equilibrium Policies
+
+```
+
+**2. Solve the Exact Nash Equilibria (Populates the `data/` directory):**
+
+```bash
 python solvers/unified_backward_induction.py
-3. Train RL Baselines
+
+```
+
+**3. Train the Reinforcement Learning baselines:**
+
+```bash
 python rl_models/train_unified.py
-4. Run Evaluation & Generate Figures
+
+```
+
+**4. Generate Empirical Analysis & Plots:**
+
+```bash
 python analysis/simulate_round_robin.py
 python analysis/plot_behavioral_metrics.py
 python analysis/calculate_spectrum_poc.py
 python analysis/variance_horizon.py
 python analysis/plot_model_comparison.py
-📊 Research Focus
 
-This project studies the interaction between:
+```
 
-Exact game-theoretic optimization
-Competitive reinforcement learning
-Risk-sensitive objectives
-Strategic inefficiency in adversarial settings
+```
 
-Key empirical findings include:
-
-Quantification of the Price of Competition
-Behavioral transitions between aggressive and conservative play
-Convergence gaps between exact DP and RL approximations
-📈 Behavioral Metrics Summary
-
-Fig. behavioral_metrics shows relatively modest behavioral differences across objective functions rather than a strict offensive-versus-defensive dichotomy.
-
-The Solo baseline records the fewest skipped marks at approximately 2.30 per player and about 1.05 penalties per player.
-The Score (0 Bonus) objective increases skipped marks to roughly 2.51 while reducing penalties to approximately 1.00.
-The Hybrid objectives gradually increase skipped marks from about 2.53 to 2.60, with penalties remaining nearly constant around 1.00.
-The Win Probability objective produces the highest penalty rate at roughly 1.17 penalties per player while averaging about 2.53 skipped marks.
-
-Overall, the results indicate that equilibrium objectives induce subtle strategic shifts in pacing and risk management rather than extreme offensive rushing or defensive stalling behavior.
+```
