@@ -58,37 +58,17 @@ pip install -r requirements.txt
 The framework is designed to be executed sequentially. Run the following commands from the root directory to replicate the full thesis methodology:
 
 **1. Generate the topological state space DAG:**
-
-```bash
-python solvers/state_space_graph.py
-
-```
+python -m solvers.state_space_graph
 
 **2. Solve the Exact Nash Equilibria (Populates the `data/` directory):**
-
-```bash
-python solvers/unified_backward_induction.py
-
-```
+python -m solvers.unified_backward_induction
 
 **3. Train the Reinforcement Learning baselines:**
-
-```bash
-python rl_models/train_unified.py
-
-```
+python -m rl_models.train_unified
 
 **4. Generate Empirical Analysis & Plots:**
-
-```bash
-python analysis/simulate_round_robin.py
-python analysis/plot_behavioral_metrics.py
-python analysis/calculate_spectrum_poc.py
-python analysis/variance_horizon.py
-python analysis/plot_model_comparison.py
-
-```
-
-```
-
-```
+python -m analysis.simulate_round_robin
+python -m analysis.plot_behavioral_metrics
+python -m analysis.calculate_spectrum_poc
+python -m analysis.variance_horizon
+python -m analysis.plot_model_comparison
