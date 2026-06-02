@@ -12,7 +12,7 @@ The framework models the game as a finite Directed Acyclic Graph (DAG) containin
 
 ---
 
-## ⚙️ Installation & Setup
+## Installation & Setup
 
 Ensure you have Python 3.9+ installed. Install the required dependencies:
 
@@ -23,7 +23,7 @@ pip install -r requirements.txt
 
 ---
 
-## 📂 Project Structure & Core Modules
+## Project Structure & Core Modules
 
 ### 1. `core/` (The Environment & MDP Formulation)
 
@@ -53,7 +53,7 @@ pip install -r requirements.txt
 
 ---
 
-## 🚀 Execution Pipeline
+##  Execution Pipeline
 
 The framework is designed to be executed sequentially. Run the following commands from the root directory to replicate the full thesis methodology:
 
