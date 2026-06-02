@@ -88,7 +88,3 @@ python analysis/variance_horizon.py
 python analysis/plot_model_comparison.py
 
 ```
-
-```
-
-```
