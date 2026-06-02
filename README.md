@@ -5,7 +5,7 @@ This repository contains the full source code for the empirical evaluation and m
 
 The framework models the game as a finite Directed Acyclic Graph (DAG) containing 565,656 distinct states. It calculates exact Subgame Perfect Nash Equilibria via parallelized Backward Induction and evaluates the "Price of Competition" and behavioral mechanics against baseline Reinforcement Learning (RL) agents.
 
-## ✨ Key Features
+## Key Features
 * **Branchless Architecture:** Environment transitions and rule evaluations are precomputed into strictly typed 32-bit static arrays, reducing environment steps to branchless O(1) memory lookups.
 * **Numba C-Compilation:** Core solvers and state encoders are Just-In-Time (JIT) compiled to bypass the Python Global Interpreter Lock (GIL), enabling massive multi-core throughput.
 * **Unified Tournament Engine:** A custom lock-free, shared-memory evaluator that pits Exact DP models against RL agents over millions of Monte Carlo rollouts to track precise behavioral metrics (margins, penalties, and skipped marks).
