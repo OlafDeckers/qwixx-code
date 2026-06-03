@@ -173,7 +173,8 @@ def verify_first_mover_advantage():
     print(f"P2 Average Score: {p2_arr.mean():.2f}")
     
     # H0: mu_p1 = mu_p2. H1: mu_p1 > mu_p2
-    t_stat_pts, p_val_pts = stats.ttest_ind(p1_arr, p2_arr, equal_var=False, alternative='greater')
+    # Use a Paired T-Test because P1 and P2 scores are dependent (drawn from the same matches)
+    t_stat_pts, p_val_pts = stats.ttest_rel(p1_arr, p2_arr, alternative='greater')
     print(f"Welch's T-Test P-Value: {p_val_pts:.10e}")
     if p_val_pts < 0.01:
         print("CONCLUSION: Statistically Significant First-Mover Point Advantage.\n")
